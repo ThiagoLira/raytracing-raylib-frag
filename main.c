@@ -13,6 +13,14 @@ Vector3 ColorToVec3(Color c) {
                    (float)c.b / 255.0f};
 }
 
+// Sphere representation for both CPU and GPU
+typedef struct Sphere {
+  Vector3 center;
+  float radius;
+  Color color;
+  int material; // 0 = lambertian, 1 = metal
+} Sphere;
+
 int main(void) {
   // Constants for screen dimensions
   const int SCREEN_WIDTH = 800;
@@ -32,18 +40,13 @@ int main(void) {
   camera.fovy = 45.0f;                            // Camera field-of-view Y
   camera.projection = CAMERA_PERSPECTIVE;         // Camera mode
 
-  // Define sphere properties
-  Vector3 sphere1Pos = {0.0f, 0.0f, -1.0f};
-  float sphere1Radius = 0.5f;
-  Color sphere1Color = DARKGREEN;
-
-  Vector3 sphere2Pos = {0.0f, -100.5f, -1.0f};
-  float sphere2Radius = 100.0f;
-  Color sphere2Color = DARKPURPLE;
-
-  Vector3 sphere3Pos = {2.0f, 0.5f, 5.0f};
-  float sphere3Radius = 0.8f;
-  Color sphere3Color = DARKBROWN;
+  // Define spheres in the scene
+  #define SPHERE_COUNT 3
+  Sphere spheres[SPHERE_COUNT] = {
+      { (Vector3){0.0f, 0.0f, -1.0f}, 0.5f, DARKGREEN, 0 },
+      { (Vector3){0.0f, -100.5f, -1.0f}, 100.0f, DARKPURPLE, 0 },
+      { (Vector3){2.0f, 0.5f, 5.0f}, 0.8f, DARKBROWN, 1 }
+  };
 
   // Load the fragment shader
   // Raylib's LoadShader will print a warning if FRAGMENT_SHADER_PATH is not
@@ -66,38 +69,39 @@ int main(void) {
 
   // Get shader locations
   int locTime = GetShaderLocation(shader, "time");
-  int locRadii = GetShaderLocation(shader, "sphereRadii");
-  int locLocii = GetShaderLocation(shader, "sphereLocii");
-  int locColors = GetShaderLocation(shader, "sphereColors");
+  int locSphereCount = GetShaderLocation(shader, "sphereCount");
   int camPosLoc = GetShaderLocation(shader, "cameraPosition");
   int invVpLoc = GetShaderLocation(shader, "invViewProj");
 
-  // Set shader uniform values
-  // 1. Radii
-  float radii[3] = {sphere1Radius, sphere2Radius, sphere3Radius};
-  // The third argument to SetShaderValueV is the value pointer,
-  // the fourth is the uniform type, and the fifth is the number of elements of
-  // that type. If sphereRadii is "float sphereRadii[3];" in GLSL, this is fine.
-  // If it's "vec3 sphereRadii;" or similar, this needs adjustment. Assuming
-  // float[3] for now. For sending 3 floats:
-  if (locRadii != -1)
-    SetShaderValueV(shader, locRadii, radii, SHADER_UNIFORM_FLOAT, 3);
+  // Pass sphere data to the shader
+  if (locSphereCount != -1)
+    SetShaderValue(shader, locSphereCount, &(int){SPHERE_COUNT}, SHADER_UNIFORM_INT);
 
-  // 3. Colors
-  Vector3 sphere1ColorVec = ColorToVec3(sphere1Color);
-  Vector3 sphere2ColorVec = ColorToVec3(sphere2Color);
-  Vector3 sphere3ColorVec = ColorToVec3(sphere3Color);
-  float colors[9] = {
-      sphere1ColorVec.x, sphere1ColorVec.y, sphere1ColorVec.z,
-      sphere2ColorVec.x, sphere2ColorVec.y, sphere2ColorVec.z,
-      sphere3ColorVec.x, sphere3ColorVec.y, sphere3ColorVec.z,
-  };
-  // If "sphereColors" is "vec3 sphereColors[3];" in GLSL:
-  if (locColors != -1)
-    SetShaderValueV(shader, locColors, colors, SHADER_UNIFORM_VEC3, 3);
-  // If "sphereColors" is "float sphereColors[9];" in GLSL:
-  // if (locColors != -1) SetShaderValueV(shader, locColors, colors,
-  // SHADER_UNIFORM_FLOAT, 9);
+  for (int i = 0; i < SPHERE_COUNT; i++) {
+    char name[64];
+    int loc;
+
+    sprintf(name, "spheres[%d].center", i);
+    loc = GetShaderLocation(shader, name);
+    if (loc != -1)
+      SetShaderValue(shader, loc, &spheres[i].center, SHADER_UNIFORM_VEC3);
+
+    sprintf(name, "spheres[%d].radius", i);
+    loc = GetShaderLocation(shader, name);
+    if (loc != -1)
+      SetShaderValue(shader, loc, &spheres[i].radius, SHADER_UNIFORM_FLOAT);
+
+    Vector3 colorVec = ColorToVec3(spheres[i].color);
+    sprintf(name, "spheres[%d].color", i);
+    loc = GetShaderLocation(shader, name);
+    if (loc != -1)
+      SetShaderValue(shader, loc, &colorVec, SHADER_UNIFORM_VEC3);
+
+    sprintf(name, "spheres[%d].material", i);
+    loc = GetShaderLocation(shader, name);
+    if (loc != -1)
+      SetShaderValue(shader, loc, &spheres[i].material, SHADER_UNIFORM_INT);
+  }
 
   // Set the time uniform to current time (or 0.0f for static effect)
   float time = (float)GetTime(); // Get current time in seconds
@@ -129,9 +133,9 @@ int main(void) {
     ClearBackground(LIGHTGRAY); // Clear the texture's background
 
     BeginMode3D(camera);
-    DrawSphere(sphere1Pos, sphere1Radius, sphere1Color);
-    DrawSphere(sphere2Pos, sphere2Radius, sphere2Color);
-    DrawSphere(sphere3Pos, sphere3Radius, sphere3Color);
+    for (int i = 0; i < SPHERE_COUNT; i++) {
+      DrawSphere(spheres[i].center, spheres[i].radius, spheres[i].color);
+    }
     DrawGrid(10, 1.0f);
     EndMode3D();
     EndTextureMode();
@@ -145,14 +149,6 @@ int main(void) {
     // returned a default shader (with a non-zero ID), and printed a warning.
     // In that case, BeginShaderMode will use the default shader, and the custom
     // effect won't apply.
-    // 2. Centers (locii)
-    float locii[9] = {
-        sphere1Pos.x, sphere1Pos.y, sphere1Pos.z, sphere2Pos.x, sphere2Pos.y,
-        sphere2Pos.z, sphere3Pos.x, sphere3Pos.y, sphere3Pos.z,
-    };
-    // If "sphereLocii" is "vec3 sphereLocii[3];" in GLSL:
-    if (locLocii != -1)
-      SetShaderValueV(shader, locLocii, locii, SHADER_UNIFORM_VEC3, 3);
     // Calculate view and projection matrices
     Matrix view = GetCameraMatrix(camera);
     float aspect = (float)SCREEN_WIDTH / (float)SCREEN_HEIGHT;
@@ -165,9 +161,6 @@ int main(void) {
       SetShaderValue(shader, camPosLoc, &camera.position, SHADER_UNIFORM_VEC3);
     if (invVpLoc != -1)
       SetShaderValueMatrix(shader, invVpLoc, invViewProj);
-    // If "sphereLocii" is "float sphereLocii[9];" in GLSL:
-    // if (locLocii != -1) SetShaderValueV(shader, locLocii, locii,
-    // SHADER_UNIFORM_FLOAT, 9);
     if (shader.id != 0) {
       BeginShaderMode(shader);
       // Draw the render texture covering the whole screen.
