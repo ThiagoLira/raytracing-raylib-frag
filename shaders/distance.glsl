@@ -10,13 +10,18 @@ uniform sampler2D texture0;
 uniform vec3 cameraPosition;
 uniform mat4 invViewProj;
 
-uniform float sphereRadii[3];
-uniform vec3 sphereLocii[3];
-uniform vec3 sphereColors[3];
+// Number of spheres in the scene
+uniform int sphereCount;
 
-// store if spheres are metal or lambertian
-// 0 = lambertian, 1 = metal
-int sphereMaterials[3] = int[3](1, 1, 1); // Default to lambertian
+struct Sphere {
+    vec3 center;
+    float radius;
+    vec3 color;
+    int material; // 0 = lambertian, 1 = metal
+};
+
+// Array of spheres
+uniform Sphere spheres[10];
 
 
 // time is used to generate random numbers like a seed
@@ -155,9 +160,9 @@ vec3 colorRayIterative(in Ray initialRay, out vec3 outColor, in int maxDepth) {
         int hitSphereIndex = -1;
 
         // Find the closest intersection among all spheres
-        for (int s = 0; s < 3; s++) {
+        for (int s = 0; s < sphereCount; s++) {
             HitRecord currentSphereHitRecord = HitRecord(0, vec3(0.0), vec3(0.0), false);
-            intersectSphere(currentRay, sphereLocii[s], sphereRadii[s], currentSphereHitRecord);
+            intersectSphere(currentRay, spheres[s].center, spheres[s].radius, currentSphereHitRecord);
             if (currentSphereHitRecord.isHit && currentSphereHitRecord.t < closestHitRecord.t) {
                 closestHitRecord = currentSphereHitRecord;
                 hitSphereIndex = s;
@@ -167,23 +172,23 @@ vec3 colorRayIterative(in Ray initialRay, out vec3 outColor, in int maxDepth) {
         if (hitSphereIndex != -1) { // If we hit a sphere
             // Simulate diffuse lighting
             //switch case for material type
-            if (sphereMaterials[hitSphereIndex] == 1) { // Metal
+            if (spheres[hitSphereIndex].material == 1) { // Metal
                 // For metal, we can assume perfect reflection, so we just continue the ray in the reflected direction
                 // v - 2*dot(v,n)*n;
                 vec3 reflectedDir = reflect(currentRay.direction, closestHitRecord.normal);
                 currentRay = Ray(closestHitRecord.hitPoint + closestHitRecord.normal * 0.0001, reflectedDir); // Offset hitPoint to avoid self-intersection
                 // Add the color of the hit sphere, modulated by the accumulated color
-                outColor += accumulatedColor * sphereColors[hitSphereIndex];
+                outColor += accumulatedColor * spheres[hitSphereIndex].color;
                 // clamp the color to avoid overflow
                 outColor = clampColor(outColor);
-            } else if (sphereMaterials[hitSphereIndex] == 0) { // Lambertian
+            } else if (spheres[hitSphereIndex].material == 0) { // Lambertian
                 // For lambertian, we need to scatter the ray in a random direction on the hemisphere defined by the normal
 
                 // A more robust random/hash function might be needed here.
                 vec3 randomDir = randomOnHemisphere(closestHitRecord.normal, seed);
                 
                 // Add the color of the hit sphere, modulated by the accumulated color
-                outColor += accumulatedColor * sphereColors[hitSphereIndex];
+                outColor += accumulatedColor * spheres[hitSphereIndex].color;
                 // clamp the color to avoid overflow
                 outColor = clampColor(outColor);
                 currentRay = Ray(closestHitRecord.hitPoint + closestHitRecord.normal * 0.0001, randomDir); // Offset hitPoint to avoid self-intersection
