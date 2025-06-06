@@ -26,6 +26,14 @@ Alternatively, `./run.sh` cleans, rebuilds and runs the program.
 
 Run the executable after building. A window opens showing the ray‑traced spheres. Use the mouse to orbit the camera.
 
+## Demo
+
+
+
+https://github.com/user-attachments/assets/71b209e4-12d8-42e7-9fa4-3d737641d1c9
+
+
+
 ## License
 
 This repository does not currently declare a license. Use at your own discretion.
