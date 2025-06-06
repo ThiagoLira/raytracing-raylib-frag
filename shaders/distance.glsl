@@ -23,7 +23,6 @@ struct Sphere {
 // Array of spheres
 uniform Sphere spheres[10];
 
-
 // time is used to generate random numbers like a seed
 uniform float time;
 float seed = gl_FragCoord.x * 0.123 + gl_FragCoord.y * 0.456 + time;
@@ -55,7 +54,7 @@ struct DirectionalLight
     float intensity; // Intensity of the light
 };
 // LIGHTS
-DirectionalLight dirlight1 = DirectionalLight(vec3(0.0, 0.0, -1.0), vec3(1.0, 1.0, 1.0), 0.2);
+DirectionalLight dirlight1 = DirectionalLight(vec3(0.0, 0.0, -1.0), vec3(0.6, 0.05, 0.05), 0.9);
 
 // FUNCTIONS
 
@@ -147,8 +146,6 @@ void intersectSphere(in Ray r, in vec3 sphereCenter, in float sphereRadius, inou
     }
 }
 
-
-
 vec3 colorRayIterative(in Ray initialRay, out vec3 outColor, in int maxDepth) {
     outColor = vec3(0.0, 0.0, 0.0);
     vec3 accumulatedColor = vec3(1.0, 1.0, 1.0); // Start with full contribution
@@ -186,28 +183,23 @@ vec3 colorRayIterative(in Ray initialRay, out vec3 outColor, in int maxDepth) {
 
                 // A more robust random/hash function might be needed here.
                 vec3 randomDir = randomOnHemisphere(closestHitRecord.normal, seed);
-                
+
                 // Add the color of the hit sphere, modulated by the accumulated color
                 outColor += accumulatedColor * spheres[hitSphereIndex].color;
                 // clamp the color to avoid overflow
                 outColor = clampColor(outColor);
                 currentRay = Ray(closestHitRecord.hitPoint + closestHitRecord.normal * 0.0001, randomDir); // Offset hitPoint to avoid self-intersection
-
             }
             // Attenuate the accumulated color for the next bounce (e.g., by material properties or a fixed factor)
-            accumulatedColor *= 0.2; // Diffuse reflection factor
+            accumulatedColor *= spheres[hitSphereIndex].color; 
 
             // Update the ray for the next bounce
-
         } else {
             vec3 unitDir = normalize(currentRay.direction);
             float a = 0.5 * (unitDir.y + 1.0); // Simple sky gradient based on direction
-            //outColor += accumulatedColor + ((1.0 - a) * vec3(1.0, 1.0, 1.0) + a * vec3(0.5, 0.7, 1.0)); // Sky color gradient
-            //outColor += mix(vec3(0.5, 0.7, 1.0), vec3(1.0, 1.0, 1.0), a); // Sky color gradient
             outColor += accumulatedColor * mix(vec3(0.3, 0.5, 0.8), vec3(1.0, 1.0, 1.0), a);
             break; // Exit the loop as the ray hit nothing
         }
-        
     }
     // now add contribution from the directional light
     vec3 lightDir = normalize(dirlight1.direction);
@@ -216,17 +208,14 @@ vec3 colorRayIterative(in Ray initialRay, out vec3 outColor, in int maxDepth) {
     return outColor; // Return the accumulated color after all bounces
 }
 
-
-
-
 void main()
 {
-    /* 
-      1. Reconstruct the world-space position of this pixel
-      ▸ Convert fragTexCoord (0‒1) to NDC (-1‒1)
-      ▸ Push it to clip-space at z = -1 (near plane)
-      ▸ Multiply by inverse VP and divide by w 
-    */
+    /*
+          1. Reconstruct the world-space position of this pixel
+          ▸ Convert fragTexCoord (0‒1) to NDC (-1‒1)
+          ▸ Push it to clip-space at z = -1 (near plane)
+          ▸ Multiply by inverse VP and divide by w
+        */
     vec2 ndc = fragTexCoord * 2.0 - 1.0;
     /*ndc.y = -ndc.y;*/ // flip Y because textures are upside-down
     vec4 clipPos = vec4(ndc, -1.0, 1.0); // near-plane clip position
@@ -234,7 +223,7 @@ void main()
     vec3 worldPos = worldPos4.xyz / worldPos4.w;
 
     int depth = 20;
-    int samples_per_pixel = 20; 
+    int samples_per_pixel = 20;
     vec3 outputColor = vec3(0.0, 0.0, 0.0); // initial color
     //colorRay(r, outputColor, depth);
     for (int i = 0; i < samples_per_pixel; i++) {
@@ -245,7 +234,5 @@ void main()
         outputColor += sampleColor; // accumulate color from each sample
     }
     outputColor /= float(samples_per_pixel); // average the color over samples
-    // gamma correction
-    outputColor = pow(outputColor, vec3(1.0 / 2.2)); // apply gamma correction
     fragColor = vec4(outputColor, 1.0); // set the output color with full opacity
 }

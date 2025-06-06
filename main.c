@@ -41,11 +41,12 @@ int main(void) {
   camera.projection = CAMERA_PERSPECTIVE;         // Camera mode
 
   // Define spheres in the scene
-  #define SPHERE_COUNT 3
+  #define SPHERE_COUNT 4
   Sphere spheres[SPHERE_COUNT] = {
-      { (Vector3){0.0f, 0.0f, -1.0f}, 0.5f, DARKGREEN, 0 },
-      { (Vector3){0.0f, -100.5f, -1.0f}, 100.0f, DARKPURPLE, 0 },
-      { (Vector3){2.0f, 0.5f, 5.0f}, 0.8f, DARKBROWN, 1 }
+      { (Vector3){0.0f, 0.0f, -1.0f}, 0.9f, DARKGREEN, 1 },
+      { (Vector3){0.0f, -100.5f, -1.0f}, 100.0f, DARKPURPLE, 1 },
+      { (Vector3){2.0f, 0.3f, 5.0f}, 0.8f, DARKBROWN, 1 },
+      { (Vector3){5.0f, 0.1f, 2.0f}, 0.8f, RED, 1 }
   };
 
   // Load the fragment shader
