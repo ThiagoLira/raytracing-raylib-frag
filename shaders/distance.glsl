@@ -17,8 +17,11 @@ struct Sphere {
     vec3 center;
     float radius;
     vec3 color;
-    int material; // 0 = lambertian, 1 = metal
+    int material; // 0 = lambertian, 1 = metal, 2=glass
 };
+
+// hardcoded for all glass surfaces now
+float REFRACTION_INDEX = 1.33;
 
 // Array of spheres
 uniform Sphere spheres[10];
@@ -146,6 +149,7 @@ void intersectSphere(in Ray r, in vec3 sphereCenter, in float sphereRadius, inou
     }
 }
 
+
 vec3 colorRayIterative(in Ray initialRay, out vec3 outColor, in int maxDepth) {
     outColor = vec3(0.0, 0.0, 0.0);
     vec3 accumulatedColor = vec3(1.0, 1.0, 1.0); // Start with full contribution
@@ -167,6 +171,9 @@ vec3 colorRayIterative(in Ray initialRay, out vec3 outColor, in int maxDepth) {
         }
 
         if (hitSphereIndex != -1) { // If we hit a sphere
+
+            bool isFrontFace = dot(currentRay.direction, closestHitRecord.normal) > 0.0;
+
             // Simulate diffuse lighting
             //switch case for material type
             if (spheres[hitSphereIndex].material == 1) { // Metal
@@ -189,9 +196,37 @@ vec3 colorRayIterative(in Ray initialRay, out vec3 outColor, in int maxDepth) {
                 // clamp the color to avoid overflow
                 outColor = clampColor(outColor);
                 currentRay = Ray(closestHitRecord.hitPoint + closestHitRecord.normal * 0.0001, randomDir); // Offset hitPoint to avoid self-intersection
+            } else if (spheres[hitSphereIndex].material == 2) { // Glass
+                // is front of sphere
+                float ri = 0.0;
+                if (isFrontFace) 
+                    ri = 1.0/REFRACTION_INDEX;
+                else 
+                    ri = REFRACTION_INDEX;
+
+                vec3 refractedDir = refract(normalize(currentRay.direction), closestHitRecord.normal, ri );
+                
+                float cos_theta = min(dot(-normalize(currentRay.direction), closestHitRecord.normal),1.0);
+                float sin_theta = sqrt(1.0 - cos_theta*cos_theta);
+                bool cannot_refract = ri * sin_theta > 1.0;
+                // Check for Total Internal Reflection
+                if (cannot_refract) {
+                    // Handle TIR with a reflection
+                    vec3 reflectedDir = reflect(normalize(currentRay.direction), closestHitRecord.normal);
+                    outColor += accumulatedColor * spheres[hitSphereIndex].color;
+                    outColor = clampColor(outColor);
+                    currentRay = Ray(closestHitRecord.hitPoint + closestHitRecord.normal * 0.0001, reflectedDir);
+                } else {
+                    // No TIR, so refract the ray
+                    outColor += accumulatedColor * spheres[hitSphereIndex].color;
+                    outColor = clampColor(outColor);
+                    currentRay = Ray(closestHitRecord.hitPoint - closestHitRecord.normal * 0.0001, refractedDir); // Note the offset direction
+                }            
             }
+
+
             // Attenuate the accumulated color for the next bounce (e.g., by material properties or a fixed factor)
-            accumulatedColor *= spheres[hitSphereIndex].color; 
+            accumulatedColor = accumulatedColor * 0.5 *spheres[hitSphereIndex].color; 
 
             // Update the ray for the next bounce
         } else {

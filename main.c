@@ -18,7 +18,7 @@ typedef struct Sphere {
   Vector3 center;
   float radius;
   Color color;
-  int material; // 0 = lambertian, 1 = metal
+  int material; // 0=lambertian, 1=metal, 2=glass
 } Sphere;
 
 int main(void) {
@@ -41,12 +41,13 @@ int main(void) {
   camera.projection = CAMERA_PERSPECTIVE;         // Camera mode
 
   // Define spheres in the scene
-  #define SPHERE_COUNT 4
+  #define SPHERE_COUNT 5
   Sphere spheres[SPHERE_COUNT] = {
       { (Vector3){0.0f, 0.0f, -1.0f}, 0.9f, DARKGREEN, 1 },
+      { (Vector3){0.0f, 0.0f, -3.0f}, 0.9f, DARKGREEN, 2 },
       { (Vector3){0.0f, -100.5f, -1.0f}, 100.0f, DARKPURPLE, 1 },
-      { (Vector3){2.0f, 0.3f, 5.0f}, 0.8f, DARKBROWN, 1 },
-      { (Vector3){5.0f, 0.1f, 2.0f}, 0.8f, RED, 1 }
+      { (Vector3){2.0f, 0.3f, 5.0f}, 0.8f, DARKBROWN, 2 },
+      { (Vector3){5.0f, 0.1f, 2.0f}, 0.8f, RED, 2 }
   };
 
   // Load the fragment shader
