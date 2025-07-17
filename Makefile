@@ -28,6 +28,13 @@ CFLAGS = -Wall -Wextra -O2 -I/usr/local/include -DPLATFORM_DESKTOP
 #       For macOS, it might be: -lraylib -framework CoreVideo -framework IOKit -framework Cocoa -framework GLUT -framework OpenGL
 LDFLAGS = -L/usr/local/lib -lraylib -lm -lpthread -ldl -lrt -lX11
 
+# Web target settings
+EMCC = emcc
+WEB_DIR = web
+WEB_TARGET = $(WEB_DIR)/index.html
+CFLAGS_WEB = -Os -I/usr/local/include -DPLATFORM_WEB -s USE_WEBGPU=1
+LDFLAGS_WEB = -L/usr/local/lib -lraylib --preload-file shaders
+
 # Default target
 all: $(TARGET)
 
@@ -43,5 +50,12 @@ clean:
 run: $(TARGET)
 	./$(TARGET)
 
+# Build WebAssembly version using WebGPU
+web: $(WEB_TARGET)
+
+$(WEB_TARGET): $(SRCS)
+	mkdir -p $(WEB_DIR)
+	$(EMCC) $(SRCS) -o $(WEB_TARGET) $(CFLAGS_WEB) $(LDFLAGS_WEB)
+
 # Phony targets (targets that are not files)
-.PHONY: all clean run
+.PHONY: all clean run web

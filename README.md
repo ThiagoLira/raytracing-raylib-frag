@@ -11,9 +11,17 @@ A `Makefile` is provided. You need raylib and a C compiler installed. On many Li
 ```bash
 make       # builds `raylib_c_project`
 make run   # builds and runs the program
+make web   # builds a WebAssembly/WebGPU version
 ```
 
 Alternatively, `./run.sh` cleans, rebuilds and runs the program.
+
+### Building for the web
+
+The `make web` target uses the Emscripten toolchain with WebGPU enabled. You need
+Emscripten and a WebGPU capable build of raylib. Running `make web` produces
+`web/index.html` together with the required assets. Serve that directory with any
+static file server to test in a browser.
 
 ## Files
 
