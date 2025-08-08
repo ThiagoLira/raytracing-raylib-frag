@@ -16,12 +16,72 @@ make web   # builds a WebAssembly/WebGPU version
 
 Alternatively, `./run.sh` cleans, rebuilds and runs the program.
 
-### Building for the web
+### Building for the web (WebGL 1.0 via Emscripten)
 
-The `make web` target uses the Emscripten toolchain with WebGPU enabled. You need
-Emscripten and a WebGPU capable build of raylib. Running `make web` produces
-`web/index.html` together with the required assets. Serve that directory with any
-static file server to test in a browser.
+raylib’s web backend targets WebGL 1.0 (OpenGL ES 2.0) via Emscripten. We provide a separate entry point `main_web.c` and a WebGL 1.0 shader `shaders/distance_web.glsl`.
+
+Follow these steps on Arch Linux:
+
+1) Install prerequisites
+
+```bash
+sudo pacman -S --needed git python \
+  base-devel # if you don’t have build tools
+```
+
+2) Install Emscripten SDK
+
+```bash
+cd ~
+git clone https://github.com/emscripten-core/emsdk.git
+cd emsdk
+./emsdk install latest
+./emsdk activate latest
+source ./emsdk_env.sh
+# To make it permanent, add the following to your shell profile (~/.bashrc or ~/.config/fish/config.fish):
+#   source ~/emsdk/emsdk_env.sh
+```
+
+3) Build raylib for web
+
+```bash
+cd ~
+git clone https://github.com/raysan5/raylib.git
+cd raylib/src
+make -e PLATFORM=PLATFORM_WEB -B
+# After success, you should have: ~/raylib/src/libraylib.a
+```
+
+4) Configure this project to use your raylib web build
+
+Edit the `Makefile` and set the absolute path to your `raylib/src` as `RAYLIB_WEB_SRC`. Example:
+
+```make
+RAYLIB_WEB_SRC ?= /home/USER/raylib/src
+```
+
+5) Build web target
+
+```bash
+source ~/emsdk/emsdk_env.sh   # ensure emcc is on PATH in this shell
+make clean
+make web
+```
+
+This generates `web/index.html` and accompanying files, preloading the `shaders` directory.
+
+6) Serve locally
+
+```bash
+cd web
+python -m http.server 8000
+# open http://localhost:8000 in a WebGL 1.0 capable browser
+```
+
+Notes:
+- The web build compiles `main_web.c` and uses `shaders/distance_web.glsl` (GLSL ES 1.00) for WebGL 1.0.
+- If you see shader compilation errors, ensure your GPU/browser supports WebGL 1.0 and that the shader version/qualifiers match GLSL ES 1.00.
+- Based on guidance for web builds from community resources such as Stack Overflow [“How to make a HTML build from raylib”](https://stackoverflow.com/questions/67989952/how-to-make-a-html-build-from-raylib).
 
 ## Files
 

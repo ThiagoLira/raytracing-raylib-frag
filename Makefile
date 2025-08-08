@@ -32,8 +32,14 @@ LDFLAGS = -L/usr/local/lib -lraylib -lm -lpthread -ldl -lrt -lX11
 EMCC = emcc
 WEB_DIR = web
 WEB_TARGET = $(WEB_DIR)/index.html
-CFLAGS_WEB = -Os -I/usr/local/include -DPLATFORM_WEB -s USE_WEBGPU=1
-LDFLAGS_WEB = -L/usr/local/lib -lraylib --preload-file shaders
+# Path to your raylib web build (directory that contains libraylib.a)
+# Example: /home/USER/repos/raylib/src
+RAYLIB_WEB_SRC ?= /home/thiago/Documents/raylib/src
+RAYLIB_WEB_LIB := $(RAYLIB_WEB_SRC)/libraylib.web.a
+
+# Emscripten flags targeting WebGL 1.0 (OpenGL ES 2.0)
+CFLAGS_WEB = -Os -I$(RAYLIB_WEB_SRC) -DPLATFORM_WEB -s USE_GLFW=3 -s MIN_WEBGL_VERSION=1 -s MAX_WEBGL_VERSION=1 -s ALLOW_MEMORY_GROWTH=1
+LDFLAGS_WEB = $(RAYLIB_WEB_LIB) --preload-file shaders -s USE_GLFW=3 -s MIN_WEBGL_VERSION=1 -s MAX_WEBGL_VERSION=1 -s ALLOW_MEMORY_GROWTH=1 -s FORCE_FILESYSTEM=1
 
 # Default target
 all: $(TARGET)
@@ -53,9 +59,9 @@ run: $(TARGET)
 # Build WebAssembly version using WebGPU
 web: $(WEB_TARGET)
 
-$(WEB_TARGET): $(SRCS)
+$(WEB_TARGET): main_web.c
 	mkdir -p $(WEB_DIR)
-	$(EMCC) $(SRCS) -o $(WEB_TARGET) $(CFLAGS_WEB) $(LDFLAGS_WEB)
+	$(EMCC) main_web.c -o $(WEB_TARGET) $(CFLAGS_WEB) $(LDFLAGS_WEB)
 
 # Phony targets (targets that are not files)
 .PHONY: all clean run web
