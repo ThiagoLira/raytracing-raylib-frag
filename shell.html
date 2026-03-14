@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Raytracer Scene Editor</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+  #canvas-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0f0f1a;
+  }
+  canvas { display: block; }
+  #sidebar {
+    width: 280px;
+    background: #16213e;
+    border-left: 1px solid #0f3460;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  #sidebar h2 {
+    font-size: 16px;
+    color: #e94560;
+    border-bottom: 1px solid #0f3460;
+    padding-bottom: 8px;
+    margin: 0;
+  }
+  #sidebar h3 {
+    font-size: 13px;
+    color: #a0a0c0;
+    margin: 4px 0 2px 0;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .panel {
+    background: #1a1a3e;
+    border: 1px solid #0f3460;
+    border-radius: 6px;
+    padding: 10px;
+  }
+  .btn {
+    display: inline-block;
+    padding: 6px 14px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: background 0.15s;
+  }
+  .btn-add { background: #0f3460; color: #e0e0e0; }
+  .btn-add:hover { background: #1a4a7a; }
+  .btn-del { background: #531530; color: #e94560; }
+  .btn-del:hover { background: #7a1a40; }
+  .btn-mat { background: #1a3a2e; color: #4ecca3; }
+  .btn-mat:hover { background: #2a5a4e; }
+  .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+  label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    margin: 4px 0;
+  }
+  input[type="color"] {
+    width: 36px;
+    height: 28px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: none;
+    cursor: pointer;
+  }
+  input[type="range"] {
+    flex: 1;
+    accent-color: #e94560;
+  }
+  select {
+    background: #0f0f2a;
+    color: #e0e0e0;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 13px;
+  }
+  .info-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #808090;
+  }
+  #sphere-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .sphere-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    background: #0f0f2a;
+    border: 1px solid transparent;
+    transition: border 0.15s;
+  }
+  .sphere-item:hover { border-color: #0f3460; }
+  .sphere-item.selected { border-color: #e94560; background: #1a1030; }
+  .sphere-swatch {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    border: 1px solid #333;
+  }
+  .controls-help {
+    font-size: 11px;
+    color: #606080;
+    line-height: 1.6;
+  }
+  .controls-help kbd {
+    background: #0f0f2a;
+    border: 1px solid #333;
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-size: 10px;
+  }
+  #status { font-size: 11px; color: #606080; }
+  .hidden { display: none; }
+  #loading-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: #1a1a2e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    z-index: 100;
+  }
+  #loading-overlay .spinner {
+    width: 40px; height: 40px;
+    border: 4px solid #0f3460;
+    border-top: 4px solid #e94560;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div id="status">Loading...</div>
+</div>
+
+<div id="canvas-container">
+  <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+</div>
+
+<div id="sidebar">
+  <h2>Scene Editor</h2>
+
+  <!-- Sphere list -->
+  <div class="panel">
+    <h3>Spheres</h3>
+    <div id="sphere-list"></div>
+    <div class="btn-group" style="margin-top:8px;">
+      <button class="btn btn-add" id="btn-add-sphere">+ Add</button>
+      <button class="btn btn-del" id="btn-del-sphere">Delete</button>
+    </div>
+  </div>
+
+  <!-- Selected sphere properties -->
+  <div class="panel" id="sphere-props">
+    <h3>Properties</h3>
+    <label>Color <input type="color" id="sphere-color" value="#888888"></label>
+    <label>Material
+      <select id="sphere-material">
+        <option value="0">Lambertian</option>
+        <option value="1">Metal</option>
+      </select>
+    </label>
+    <label>Radius <input type="range" id="sphere-radius" min="0.1" max="5" step="0.05" value="0.5">
+      <span id="sphere-radius-val">0.5</span>
+    </label>
+  </div>
+
+  <!-- Lights -->
+  <div class="panel">
+    <h3>Directional Light</h3>
+    <label>Color <input type="color" id="light-color" value="#993308"></label>
+    <label>Intensity <input type="range" id="light-intensity" min="0" max="3" step="0.05" value="0.9">
+      <span id="light-intensity-val">0.9</span>
+    </label>
+    <label>Dir X <input type="range" id="light-dx" min="-1" max="1" step="0.05" value="0">
+      <span id="light-dx-val">0</span>
+    </label>
+    <label>Dir Y <input type="range" id="light-dy" min="-1" max="1" step="0.05" value="0">
+      <span id="light-dy-val">0</span>
+    </label>
+    <label>Dir Z <input type="range" id="light-dz" min="-1" max="1" step="0.05" value="-1">
+      <span id="light-dz-val">-1</span>
+    </label>
+  </div>
+
+  <!-- Controls help -->
+  <div class="panel controls-help">
+    <h3>Controls</h3>
+    <kbd>Right-click</kbd> + drag: Orbit camera<br>
+    <kbd>Scroll</kbd>: Zoom in/out<br>
+    <kbd>Left-click</kbd>: Select sphere<br>
+    <kbd>Left-drag</kbd>: Move sphere
+  </div>
+
+  <div class="info-row">
+    <span id="fps-display">FPS: --</span>
+    <span id="sphere-count-display">0/10</span>
+  </div>
+</div>
+
+<script>
+var canvasElement = document.getElementById('canvas');
+var statusElement = document.getElementById('status');
+
+// UI elements
+var sphereList = document.getElementById('sphere-list');
+var sphereColor = document.getElementById('sphere-color');
+var sphereMaterial = document.getElementById('sphere-material');
+var sphereRadius = document.getElementById('sphere-radius');
+var sphereRadiusVal = document.getElementById('sphere-radius-val');
+var lightColor = document.getElementById('light-color');
+var lightIntensity = document.getElementById('light-intensity');
+var lightIntensityVal = document.getElementById('light-intensity-val');
+var lightDx = document.getElementById('light-dx');
+var lightDy = document.getElementById('light-dy');
+var lightDz = document.getElementById('light-dz');
+var lightDxVal = document.getElementById('light-dx-val');
+var lightDyVal = document.getElementById('light-dy-val');
+var lightDzVal = document.getElementById('light-dz-val');
+
+function hexToRgb(hex) {
+  var r = parseInt(hex.slice(1,3), 16);
+  var g = parseInt(hex.slice(3,5), 16);
+  var b = parseInt(hex.slice(5,7), 16);
+  return [r, g, b];
+}
+
+function rgbToHex(r, g, b) {
+  return '#' + [r,g,b].map(function(x) { return x.toString(16).padStart(2,'0'); }).join('');
+}
+
+function componentToFloat(c) { return c / 255.0; }
+function floatToComponent(f) { return Math.round(Math.max(0, Math.min(1, f)) * 255); }
+
+function floatRgbToHex(r, g, b) {
+  return rgbToHex(floatToComponent(r), floatToComponent(g), floatToComponent(b));
+}
+
+// Poll C state and update UI
+function refreshUI() {
+  if (!Module._GetSphereCount) return;
+  var count = Module._GetSphereCount();
+  var selected = Module._GetSelectedSphere();
+  document.getElementById('sphere-count-display').textContent = count + '/10';
+
+  // Rebuild sphere list
+  sphereList.innerHTML = '';
+  for (var i = 0; i < count; i++) {
+    var r = Module._GetSphereColorR(i);
+    var g = Module._GetSphereColorG(i);
+    var b = Module._GetSphereColorB(i);
+    var hex = rgbToHex(r, g, b);
+    var mat = Module._GetSphereMaterial(i);
+
+    var div = document.createElement('div');
+    div.className = 'sphere-item' + (i === selected ? ' selected' : '');
+    div.innerHTML = '<div class="sphere-swatch" style="background:' + hex + '"></div>' +
+      '<span>Sphere ' + i + '</span><span style="margin-left:auto;font-size:11px;color:#808090">' +
+      (mat === 1 ? 'Metal' : 'Diffuse') + '</span>';
+    div.dataset.index = i;
+    div.addEventListener('click', (function(idx) {
+      return function() { Module._SelectSphere(idx); refreshUI(); };
+    })(i));
+    sphereList.appendChild(div);
+  }
+
+  // Update props panel
+  var propsPanel = document.getElementById('sphere-props');
+  if (selected >= 0 && selected < count) {
+    propsPanel.classList.remove('hidden');
+    var sr = Module._GetSphereColorR(selected);
+    var sg = Module._GetSphereColorG(selected);
+    var sb = Module._GetSphereColorB(selected);
+    sphereColor.value = rgbToHex(sr, sg, sb);
+    sphereMaterial.value = Module._GetSphereMaterial(selected).toString();
+    var rad = Module._GetSphereRadius(selected);
+    sphereRadius.value = rad;
+    sphereRadiusVal.textContent = rad.toFixed(2);
+  } else {
+    propsPanel.classList.add('hidden');
+  }
+
+  // Update light UI
+  var lr = Module._GetLightColorR(0);
+  var lg = Module._GetLightColorG(0);
+  var lb = Module._GetLightColorB(0);
+  lightColor.value = floatRgbToHex(lr, lg, lb);
+  var li = Module._GetLightIntensity(0);
+  lightIntensity.value = li;
+  lightIntensityVal.textContent = li.toFixed(2);
+  var dx = Module._GetLightDirX(0);
+  var dy = Module._GetLightDirY(0);
+  var dz = Module._GetLightDirZ(0);
+  lightDx.value = dx; lightDxVal.textContent = dx.toFixed(2);
+  lightDy.value = dy; lightDyVal.textContent = dy.toFixed(2);
+  lightDz.value = dz; lightDzVal.textContent = dz.toFixed(2);
+}
+
+// Wire up buttons
+document.getElementById('btn-add-sphere').addEventListener('click', function() {
+  if (Module._GetSphereCount() < 10) {
+    Module._AddSphere();
+    refreshUI();
+  }
+});
+document.getElementById('btn-del-sphere').addEventListener('click', function() {
+  if (Module._GetSelectedSphere() >= 0) {
+    Module._DeleteSelectedSphere();
+    refreshUI();
+  }
+});
+
+// Sphere color
+sphereColor.addEventListener('input', function() {
+  var sel = Module._GetSelectedSphere();
+  if (sel < 0) return;
+  var rgb = hexToRgb(this.value);
+  Module._SetSphereColor(sel, rgb[0], rgb[1], rgb[2]);
+});
+
+// Sphere material
+sphereMaterial.addEventListener('change', function() {
+  var sel = Module._GetSelectedSphere();
+  if (sel < 0) return;
+  Module._SetSphereMaterial(sel, parseInt(this.value));
+  refreshUI();
+});
+
+// Sphere radius
+sphereRadius.addEventListener('input', function() {
+  var sel = Module._GetSelectedSphere();
+  if (sel < 0) return;
+  sphereRadiusVal.textContent = parseFloat(this.value).toFixed(2);
+  Module._SetSphereRadius(sel, parseFloat(this.value));
+});
+
+// Light color
+lightColor.addEventListener('input', function() {
+  var rgb = hexToRgb(this.value);
+  Module._SetLightColor(0, rgb[0]/255.0, rgb[1]/255.0, rgb[2]/255.0);
+});
+
+// Light intensity
+lightIntensity.addEventListener('input', function() {
+  lightIntensityVal.textContent = parseFloat(this.value).toFixed(2);
+  Module._SetLightIntensity(0, parseFloat(this.value));
+});
+
+// Light direction sliders
+lightDx.addEventListener('input', function() {
+  lightDxVal.textContent = parseFloat(this.value).toFixed(2);
+  Module._SetLightDir(0, parseFloat(lightDx.value), parseFloat(lightDy.value), parseFloat(lightDz.value));
+});
+lightDy.addEventListener('input', function() {
+  lightDyVal.textContent = parseFloat(this.value).toFixed(2);
+  Module._SetLightDir(0, parseFloat(lightDx.value), parseFloat(lightDy.value), parseFloat(lightDz.value));
+});
+lightDz.addEventListener('input', function() {
+  lightDzVal.textContent = parseFloat(this.value).toFixed(2);
+  Module._SetLightDir(0, parseFloat(lightDx.value), parseFloat(lightDy.value), parseFloat(lightDz.value));
+});
+
+// Periodic UI refresh (picks up changes from C side like dragging)
+setInterval(function() { refreshUI(); }, 200);
+
+var Module = {
+  print: function() { console.log.apply(console, arguments); },
+  canvas: canvasElement,
+  setStatus: function(text) {
+    statusElement.innerHTML = text;
+    if (!text) document.getElementById('loading-overlay').style.display = 'none';
+  },
+  totalDependencies: 0,
+  monitorRunDependencies: function(left) {
+    this.totalDependencies = Math.max(this.totalDependencies, left);
+    Module.setStatus(left ? 'Loading... (' + (this.totalDependencies - left) + '/' + this.totalDependencies + ')' : '');
+  }
+};
+Module.setStatus('Loading...');
+window.onerror = function(msg) {
+  Module.setStatus('Error: see console');
+  console.error(msg);
+};
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

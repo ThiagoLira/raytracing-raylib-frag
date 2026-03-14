@@ -1,21 +1,35 @@
 // GLSL ES 1.00 (WebGL 1.0)
 precision highp float;
 precision highp int;
-#define MAX_DEPTH 32 // compile-time constant
-#define MAX_SPHERES 4
+#define MAX_DEPTH 32
+#define MAX_SPHERES 10
+#define MAX_LIGHTS 4
 varying vec2 fragTexCoord;
-uniform sampler2D texture0; // not used, kept for compatibility
+uniform sampler2D texture0;
 
 uniform vec3 cameraPosition;
 uniform mat4 invViewProj;
 
 uniform int sphereCount;
+uniform int lightCount;
 
-// Pass spheres as individual uniforms to avoid dynamic indexing restrictions in WebGL 1.0
+// === Sphere uniforms (flat, WebGL 1.0) ===
 uniform vec3  u_s0_center; uniform float u_s0_radius; uniform vec3  u_s0_color; uniform int u_s0_material;
 uniform vec3  u_s1_center; uniform float u_s1_radius; uniform vec3  u_s1_color; uniform int u_s1_material;
 uniform vec3  u_s2_center; uniform float u_s2_radius; uniform vec3  u_s2_color; uniform int u_s2_material;
 uniform vec3  u_s3_center; uniform float u_s3_radius; uniform vec3  u_s3_color; uniform int u_s3_material;
+uniform vec3  u_s4_center; uniform float u_s4_radius; uniform vec3  u_s4_color; uniform int u_s4_material;
+uniform vec3  u_s5_center; uniform float u_s5_radius; uniform vec3  u_s5_color; uniform int u_s5_material;
+uniform vec3  u_s6_center; uniform float u_s6_radius; uniform vec3  u_s6_color; uniform int u_s6_material;
+uniform vec3  u_s7_center; uniform float u_s7_radius; uniform vec3  u_s7_color; uniform int u_s7_material;
+uniform vec3  u_s8_center; uniform float u_s8_radius; uniform vec3  u_s8_color; uniform int u_s8_material;
+uniform vec3  u_s9_center; uniform float u_s9_radius; uniform vec3  u_s9_color; uniform int u_s9_material;
+
+// === Light uniforms (flat, WebGL 1.0) ===
+uniform vec3  u_l0_direction; uniform vec3  u_l0_color; uniform float u_l0_intensity;
+uniform vec3  u_l1_direction; uniform vec3  u_l1_color; uniform float u_l1_intensity;
+uniform vec3  u_l2_direction; uniform vec3  u_l2_color; uniform float u_l2_intensity;
+uniform vec3  u_l3_direction; uniform vec3  u_l3_color; uniform float u_l3_intensity;
 
 uniform float time;
 
@@ -31,13 +45,7 @@ struct HitRecord {
     bool isHit;
 };
 
-struct DirectionalLight {
-    vec3 direction;
-    vec3 color;
-    float intensity;
-};
-
-DirectionalLight dirlight1 = DirectionalLight(vec3(0.0, 0.0, -1.0), vec3(0.6, 0.05, 0.05), 0.9);
+// === RNG ===
 
 float randomDouble(inout float currentSeed) {
     currentSeed = fract(sin(currentSeed * 12.9898) * 43758.5453);
@@ -74,16 +82,7 @@ vec3 randomOnHemisphere(in vec3 normal, inout float currentSeed) {
     return unitVec;
 }
 
-vec3 clampColor(vec3 color) {
-    return clamp(color, 0.0, 1.0);
-}
-
-void getSphere(const int idx, out vec3 center, out float radius, out vec3 color, out int material) {
-    if (idx == 0) { center = u_s0_center; radius = u_s0_radius; color = u_s0_color; material = u_s0_material; return; }
-    if (idx == 1) { center = u_s1_center; radius = u_s1_radius; color = u_s1_color; material = u_s1_material; return; }
-    if (idx == 2) { center = u_s2_center; radius = u_s2_radius; color = u_s2_color; material = u_s2_material; return; }
-    /* idx == 3 or default */ center = u_s3_center; radius = u_s3_radius; color = u_s3_color; material = u_s3_material; return;
-}
+// === Intersection ===
 
 void intersectSphere(in Ray r, in vec3 sphereCenter, in float sphereRadius, inout HitRecord hitRecord) {
     if (hitRecord.isHit) return;
@@ -104,42 +103,104 @@ void intersectSphere(in Ray r, in vec3 sphereCenter, in float sphereRadius, inou
     }
 }
 
+void getSphere(const int idx, out vec3 center, out float radius, out vec3 color, out int material) {
+    if (idx == 0) { center = u_s0_center; radius = u_s0_radius; color = u_s0_color; material = u_s0_material; return; }
+    if (idx == 1) { center = u_s1_center; radius = u_s1_radius; color = u_s1_color; material = u_s1_material; return; }
+    if (idx == 2) { center = u_s2_center; radius = u_s2_radius; color = u_s2_color; material = u_s2_material; return; }
+    if (idx == 3) { center = u_s3_center; radius = u_s3_radius; color = u_s3_color; material = u_s3_material; return; }
+    if (idx == 4) { center = u_s4_center; radius = u_s4_radius; color = u_s4_color; material = u_s4_material; return; }
+    if (idx == 5) { center = u_s5_center; radius = u_s5_radius; color = u_s5_color; material = u_s5_material; return; }
+    if (idx == 6) { center = u_s6_center; radius = u_s6_radius; color = u_s6_color; material = u_s6_material; return; }
+    if (idx == 7) { center = u_s7_center; radius = u_s7_radius; color = u_s7_color; material = u_s7_material; return; }
+    if (idx == 8) { center = u_s8_center; radius = u_s8_radius; color = u_s8_color; material = u_s8_material; return; }
+    /* idx == 9 */ center = u_s9_center; radius = u_s9_radius; color = u_s9_color; material = u_s9_material; return;
+}
+
+// === Lighting ===
+
+void getLight(const int idx, out vec3 direction, out vec3 color, out float intensity) {
+    if (idx == 0) { direction = u_l0_direction; color = u_l0_color; intensity = u_l0_intensity; return; }
+    if (idx == 1) { direction = u_l1_direction; color = u_l1_color; intensity = u_l1_intensity; return; }
+    if (idx == 2) { direction = u_l2_direction; color = u_l2_color; intensity = u_l2_intensity; return; }
+    /* idx == 3 */ direction = u_l3_direction; color = u_l3_color; intensity = u_l3_intensity; return;
+}
+
+// === Materials ===
+
+void scatterRay(in int material, in Ray currentRay, in HitRecord hit, inout float rngSeed, out Ray scattered) {
+    if (material == 1) {
+        // Metal: reflect
+        vec3 reflectedDir = reflect(currentRay.direction, hit.normal);
+        scattered = Ray(hit.hitPoint + hit.normal * 0.0001, reflectedDir);
+    } else {
+        // Lambertian: random hemisphere scatter
+        vec3 randomDir = randomOnHemisphere(hit.normal, rngSeed);
+        scattered = Ray(hit.hitPoint + hit.normal * 0.0001, randomDir);
+    }
+}
+
+// === Tracing ===
+
+void findClosestHit(in Ray r, out HitRecord closestHit, out int hitIndex, out vec3 hitColor, out int hitMaterial) {
+    closestHit = HitRecord(1e38, vec3(0.0), vec3(0.0), false);
+    hitIndex = -1;
+    hitColor = vec3(1.0);
+    hitMaterial = 0;
+
+    for (int s = 0; s < MAX_SPHERES; s++) {
+        if (s >= sphereCount) break;
+        vec3 sc; float sr; vec3 scol; int smat;
+        getSphere(s, sc, sr, scol, smat);
+        HitRecord currentHit = HitRecord(0.0, vec3(0.0), vec3(0.0), false);
+        intersectSphere(r, sc, sr, currentHit);
+        if (currentHit.isHit && currentHit.t < closestHit.t) {
+            closestHit = currentHit;
+            hitIndex = s;
+            hitColor = scol;
+            hitMaterial = smat;
+        }
+    }
+}
+
 vec3 colorRayIterative(in Ray initialRay, out vec3 outColor, inout float rngSeed) {
     outColor = vec3(0.0);
     vec3 accumulatedColor = vec3(1.0);
     Ray currentRay = initialRay;
+
     for (int depth = 0; depth < MAX_DEPTH; depth++) {
-        HitRecord closestHitRecord = HitRecord(1e38, vec3(0.0), vec3(0.0), false);
-        int hitSphereIndex = -1;
-        vec3 hitColor = vec3(1.0);
-        int hitMaterial = 0;
+        HitRecord closestHit;
+        int hitIndex;
+        vec3 hitColor;
+        int hitMaterial;
+        findClosestHit(currentRay, closestHit, hitIndex, hitColor, hitMaterial);
 
-        for (int s = 0; s < MAX_SPHERES; s++) {
-            if (s >= sphereCount) break;
-            vec3 sc; float sr; vec3 scol; int smat;
-            getSphere(s, sc, sr, scol, smat);
-            HitRecord currentSphereHitRecord = HitRecord(0.0, vec3(0.0), vec3(0.0), false);
-            intersectSphere(currentRay, sc, sr, currentSphereHitRecord);
-            if (currentSphereHitRecord.isHit && currentSphereHitRecord.t < closestHitRecord.t) {
-                closestHitRecord = currentSphereHitRecord;
-                hitSphereIndex = s;
-                hitColor = scol;
-                hitMaterial = smat;
-            }
-        }
-
-        if (hitSphereIndex != -1) {
-            if (hitMaterial == 1) {
-                vec3 reflectedDir = reflect(currentRay.direction, closestHitRecord.normal);
-                currentRay = Ray(closestHitRecord.hitPoint + closestHitRecord.normal * 0.0001, reflectedDir);
-                outColor = clampColor(outColor + accumulatedColor * hitColor);
-            } else {
-                vec3 randomDir = randomOnHemisphere(closestHitRecord.normal, rngSeed);
-                outColor = clampColor(outColor + accumulatedColor * hitColor);
-                currentRay = Ray(closestHitRecord.hitPoint + closestHitRecord.normal * 0.0001, randomDir);
-            }
+        if (hitIndex != -1) {
+            outColor += accumulatedColor * hitColor;
             accumulatedColor *= hitColor;
+
+            // Apply directional lights at this hit
+            for (int li = 0; li < MAX_LIGHTS; li++) {
+                if (li >= lightCount) break;
+                vec3 lDir; vec3 lCol; float lInt;
+                getLight(li, lDir, lCol, lInt);
+                vec3 lightDir = normalize(lDir);
+                float NdotL = max(dot(closestHit.normal, -lightDir), 0.0);
+                // Shadow test
+                Ray shadowRay = Ray(closestHit.hitPoint + closestHit.normal * 0.0001, -lightDir);
+                HitRecord shadowHit;
+                int si; vec3 sc; int sm;
+                findClosestHit(shadowRay, shadowHit, si, sc, sm);
+                if (si == -1) {
+                    outColor += accumulatedColor * lCol * lInt * NdotL;
+                }
+            }
+
+            // Scatter for next bounce
+            Ray scattered;
+            scatterRay(hitMaterial, currentRay, closestHit, rngSeed, scattered);
+            currentRay = scattered;
         } else {
+            // Sky
             vec3 unitDir = normalize(currentRay.direction);
             float a = 0.5 * (unitDir.y + 1.0);
             outColor += accumulatedColor * mix(vec3(0.3, 0.5, 0.8), vec3(1.0), a);
@@ -147,9 +208,6 @@ vec3 colorRayIterative(in Ray initialRay, out vec3 outColor, inout float rngSeed
         }
     }
 
-    vec3 lightDir = normalize(dirlight1.direction);
-    float lightIntensity = max(dot(lightDir, normalize(currentRay.direction)), dirlight1.intensity);
-    outColor += lightIntensity * dirlight1.color * accumulatedColor;
     return outColor;
 }
 
@@ -171,5 +229,3 @@ void main() {
     outputColor /= float(samples_per_pixel);
     gl_FragColor = vec4(outputColor, 1.0);
 }
-
-
