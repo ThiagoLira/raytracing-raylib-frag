@@ -1,98 +1,86 @@
 # Raytracing Raylib Fragment Shader
 
-This project is a minimal C program that demonstrates how to combine [raylib](https://www.raylib.com/) with a GLSL fragment shader to produce a simple ray tracing effect.
+A real-time ray tracer built with [raylib](https://www.raylib.com/) and GLSL, featuring an interactive web-based scene editor. The fragment shader performs iterative path tracing with support for Lambertian and metallic materials, directional lighting, and soft shadows.
 
-The program renders a basic 3D scene of spheres using raylib. A custom shader located at `shaders/distance.glsl` performs iterative ray tracing in screen space. The executable draws the scene to a texture, then applies the fragment shader in a second pass.
+## Features
+
+- Path tracing with configurable bounce depth and multi-sample anti-aliasing
+- Up to 10 spheres and 4 directional lights
+- Interactive scene editor (web build):
+  - Click to select spheres, drag to move them
+  - Add/delete spheres from the sidebar
+  - Color picker, material selector (Lambertian/Metal), radius slider
+  - Light controls: color, intensity, direction
+  - Orbital camera (right-click drag) with scroll zoom
 
 ## Building
 
-A `Makefile` is provided. You need raylib and a C compiler installed. On many Linux distributions you can install the library with `libraylib-dev`.
+### Web build (primary target)
+
+The web build compiles to WebAssembly via Emscripten, targeting WebGL 1.0. It includes a custom HTML shell with a sidebar UI for scene editing.
+
+#### Prerequisites
+
+1. Install [Emscripten SDK](https://emscripten.org/docs/getting_started/downloads.html):
 
 ```bash
-make       # builds `raylib_c_project`
-make run   # builds and runs the program
-make web   # builds a WebAssembly/WebGPU version
-```
-
-Alternatively, `./run.sh` cleans, rebuilds and runs the program.
-
-### Building for the web (WebGL 1.0 via Emscripten)
-
-raylib’s web backend targets WebGL 1.0 (OpenGL ES 2.0) via Emscripten. We provide a separate entry point `main_web.c` and a WebGL 1.0 shader `shaders/distance_web.glsl`.
-
-Follow these steps on Arch Linux:
-
-1) Install prerequisites
-
-```bash
-sudo pacman -S --needed git python \
-  base-devel # if you don’t have build tools
-```
-
-2) Install Emscripten SDK
-
-```bash
-cd ~
 git clone https://github.com/emscripten-core/emsdk.git
 cd emsdk
 ./emsdk install latest
 ./emsdk activate latest
 source ./emsdk_env.sh
-# To make it permanent, add the following to your shell profile (~/.bashrc or ~/.config/fish/config.fish):
-#   source ~/emsdk/emsdk_env.sh
 ```
 
-3) Build raylib for web
+2. Build raylib for web:
 
 ```bash
-cd ~
 git clone https://github.com/raysan5/raylib.git
 cd raylib/src
 make -e PLATFORM=PLATFORM_WEB -B
-# After success, you should have: ~/raylib/src/libraylib.a
 ```
 
-4) Configure this project to use your raylib web build
-
-Edit the `Makefile` and set the absolute path to your `raylib/src` as `RAYLIB_WEB_SRC`. Example:
+3. Set `RAYLIB_WEB_SRC` in the `Makefile` to point to your `raylib/src` directory:
 
 ```make
-RAYLIB_WEB_SRC ?= /home/USER/raylib/src
+RAYLIB_WEB_SRC ?= /path/to/raylib/src
 ```
 
-5) Build web target
+#### Build and run
 
 ```bash
-source ~/emsdk/emsdk_env.sh   # ensure emcc is on PATH in this shell
-make clean
-make web
+source ~/emsdk/emsdk_env.sh
+make clean && make web
+python3 -m http.server -d web 8000
+# open http://localhost:8000
 ```
 
-This generates `web/index.html` and accompanying files, preloading the `shaders` directory.
+### Desktop build (legacy)
 
-6) Serve locally
+Desktop source files are in `legacy_non_web/`. To build:
 
 ```bash
-cd web
-python -m http.server 8000
-# open http://localhost:8000 in a WebGL 1.0 capable browser
+make   # builds raylib_c_project from legacy_non_web/main.c
 ```
 
-Notes:
-- The web build compiles `main_web.c` and uses `shaders/distance_web.glsl` (GLSL ES 1.00) for WebGL 1.0.
-- If you see shader compilation errors, ensure your GPU/browser supports WebGL 1.0 and that the shader version/qualifiers match GLSL ES 1.00.
-- Based on guidance for web builds from community resources such as Stack Overflow [“How to make a HTML build from raylib”](https://stackoverflow.com/questions/67989952/how-to-make-a-html-build-from-raylib).
+Requires raylib installed locally (e.g. via Homebrew on macOS or `libraylib-dev` on Linux).
 
 ## Files
 
-- `main.c` – sets up the window, camera and shader, then renders the scene.
-- `shaders/distance.glsl` – GLSL fragment shader implementing the ray tracing effect.
-- `Makefile` – simple build script.
-- `run.sh` – helper script to build and run.
+- `main_web.c` – web entry point with scene state, camera controls, sphere picking/dragging, and C API exported to JavaScript
+- `shaders/distance_web.glsl` – GLSL ES 1.00 fragment shader (path tracing, up to 10 spheres + 4 lights)
+- `shell.html` – custom Emscripten HTML shell with sidebar scene editor UI
+- `Makefile` – build targets for desktop and web
+- `legacy_non_web/` – original desktop-only `main.c` and `distance.glsl`
 
-## Usage
+## Controls
 
-Run the executable after building. A window opens showing the ray‑traced spheres. Use the mouse to orbit the camera.
+| Action | Input |
+|---|---|
+| Orbit camera | Right-click + drag |
+| Zoom | Scroll wheel |
+| Select sphere | Left-click |
+| Move sphere | Left-click + drag |
+| Add/delete/edit | Sidebar panel |
 
 ## Demo
 
