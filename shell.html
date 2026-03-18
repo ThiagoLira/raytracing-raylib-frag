@@ -15,14 +15,17 @@
   }
   #canvas-container {
     flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     background: #0f0f1a;
+    overflow: hidden;
   }
-  canvas { display: block; }
+  canvas { display: block; max-width: 100%; max-height: 100vh; }
   #sidebar {
     width: 280px;
+    flex-shrink: 0;
     background: #16213e;
     border-left: 1px solid #0f3460;
     overflow-y: auto;
@@ -200,22 +203,43 @@
     </label>
   </div>
 
-  <!-- Lights -->
+  <!-- Light -->
   <div class="panel">
-    <h3>Directional Light</h3>
+    <h3>Light</h3>
+    <label>Type
+      <select id="light-type">
+        <option value="0">Directional</option>
+        <option value="1">Point</option>
+      </select>
+    </label>
     <label>Color <input type="color" id="light-color" value="#993308"></label>
     <label>Intensity <input type="range" id="light-intensity" min="0" max="3" step="0.05" value="0.9">
       <span id="light-intensity-val">0.9</span>
     </label>
-    <label>Dir X <input type="range" id="light-dx" min="-1" max="1" step="0.05" value="0">
-      <span id="light-dx-val">0</span>
-    </label>
-    <label>Dir Y <input type="range" id="light-dy" min="-1" max="1" step="0.05" value="0">
-      <span id="light-dy-val">0</span>
-    </label>
-    <label>Dir Z <input type="range" id="light-dz" min="-1" max="1" step="0.05" value="-1">
-      <span id="light-dz-val">-1</span>
-    </label>
+    <!-- Directional light fields -->
+    <div id="light-dir-fields">
+      <label>Dir X <input type="range" id="light-dx" min="-1" max="1" step="0.05" value="0">
+        <span id="light-dx-val">0</span>
+      </label>
+      <label>Dir Y <input type="range" id="light-dy" min="-1" max="1" step="0.05" value="0">
+        <span id="light-dy-val">0</span>
+      </label>
+      <label>Dir Z <input type="range" id="light-dz" min="-1" max="1" step="0.05" value="-1">
+        <span id="light-dz-val">-1</span>
+      </label>
+    </div>
+    <!-- Point light fields -->
+    <div id="light-pos-fields" class="hidden">
+      <label>Pos X <input type="range" id="light-px" min="-10" max="10" step="0.1" value="0">
+        <span id="light-px-val">0</span>
+      </label>
+      <label>Pos Y <input type="range" id="light-py" min="-10" max="10" step="0.1" value="2">
+        <span id="light-py-val">2</span>
+      </label>
+      <label>Pos Z <input type="range" id="light-pz" min="-10" max="10" step="0.1" value="0">
+        <span id="light-pz-val">0</span>
+      </label>
+    </div>
   </div>
 
   <!-- Controls help -->
@@ -243,15 +267,24 @@ var sphereColor = document.getElementById('sphere-color');
 var sphereMaterial = document.getElementById('sphere-material');
 var sphereRadius = document.getElementById('sphere-radius');
 var sphereRadiusVal = document.getElementById('sphere-radius-val');
+var lightType = document.getElementById('light-type');
 var lightColor = document.getElementById('light-color');
 var lightIntensity = document.getElementById('light-intensity');
 var lightIntensityVal = document.getElementById('light-intensity-val');
+var lightDirFields = document.getElementById('light-dir-fields');
+var lightPosFields = document.getElementById('light-pos-fields');
 var lightDx = document.getElementById('light-dx');
 var lightDy = document.getElementById('light-dy');
 var lightDz = document.getElementById('light-dz');
 var lightDxVal = document.getElementById('light-dx-val');
 var lightDyVal = document.getElementById('light-dy-val');
 var lightDzVal = document.getElementById('light-dz-val');
+var lightPx = document.getElementById('light-px');
+var lightPy = document.getElementById('light-py');
+var lightPz = document.getElementById('light-pz');
+var lightPxVal = document.getElementById('light-px-val');
+var lightPyVal = document.getElementById('light-py-val');
+var lightPzVal = document.getElementById('light-pz-val');
 
 function hexToRgb(hex) {
   var r = parseInt(hex.slice(1,3), 16);
@@ -316,6 +349,12 @@ function refreshUI() {
   }
 
   // Update light UI
+  var lt = Module._GetLightType(0);
+  lightType.value = lt.toString();
+  // Show/hide direction vs position fields
+  lightDirFields.classList.toggle('hidden', lt !== 0);
+  lightPosFields.classList.toggle('hidden', lt !== 1);
+
   var lr = Module._GetLightColorR(0);
   var lg = Module._GetLightColorG(0);
   var lb = Module._GetLightColorB(0);
@@ -323,12 +362,20 @@ function refreshUI() {
   var li = Module._GetLightIntensity(0);
   lightIntensity.value = li;
   lightIntensityVal.textContent = li.toFixed(2);
+
   var dx = Module._GetLightDirX(0);
   var dy = Module._GetLightDirY(0);
   var dz = Module._GetLightDirZ(0);
   lightDx.value = dx; lightDxVal.textContent = dx.toFixed(2);
   lightDy.value = dy; lightDyVal.textContent = dy.toFixed(2);
   lightDz.value = dz; lightDzVal.textContent = dz.toFixed(2);
+
+  var px = Module._GetLightPosX(0);
+  var py = Module._GetLightPosY(0);
+  var pz = Module._GetLightPosZ(0);
+  lightPx.value = px; lightPxVal.textContent = px.toFixed(1);
+  lightPy.value = py; lightPyVal.textContent = py.toFixed(1);
+  lightPz.value = pz; lightPzVal.textContent = pz.toFixed(1);
 }
 
 // Wire up buttons
@@ -369,6 +416,12 @@ sphereRadius.addEventListener('input', function() {
   Module._SetSphereRadius(sel, parseFloat(this.value));
 });
 
+// Light type
+lightType.addEventListener('change', function() {
+  Module._SetLightType(0, parseInt(this.value));
+  refreshUI();
+});
+
 // Light color
 lightColor.addEventListener('input', function() {
   var rgb = hexToRgb(this.value);
@@ -393,6 +446,20 @@ lightDy.addEventListener('input', function() {
 lightDz.addEventListener('input', function() {
   lightDzVal.textContent = parseFloat(this.value).toFixed(2);
   Module._SetLightDir(0, parseFloat(lightDx.value), parseFloat(lightDy.value), parseFloat(lightDz.value));
+});
+
+// Light position sliders
+lightPx.addEventListener('input', function() {
+  lightPxVal.textContent = parseFloat(this.value).toFixed(1);
+  Module._SetLightPos(0, parseFloat(lightPx.value), parseFloat(lightPy.value), parseFloat(lightPz.value));
+});
+lightPy.addEventListener('input', function() {
+  lightPyVal.textContent = parseFloat(this.value).toFixed(1);
+  Module._SetLightPos(0, parseFloat(lightPx.value), parseFloat(lightPy.value), parseFloat(lightPz.value));
+});
+lightPz.addEventListener('input', function() {
+  lightPzVal.textContent = parseFloat(this.value).toFixed(1);
+  Module._SetLightPos(0, parseFloat(lightPx.value), parseFloat(lightPy.value), parseFloat(lightPz.value));
 });
 
 // Periodic UI refresh (picks up changes from C side like dragging)

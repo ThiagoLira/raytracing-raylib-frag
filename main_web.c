@@ -10,8 +10,8 @@
 
 static const char *FRAGMENT_SHADER_PATH_WEB = "shaders/distance_web.glsl";
 
-#define SCREEN_WIDTH 800
-#define SCREEN_HEIGHT 600
+#define SCREEN_WIDTH 1280
+#define SCREEN_HEIGHT 720
 #define MAX_SPHERES 10
 #define MAX_LIGHTS 4
 
@@ -22,11 +22,14 @@ typedef struct Sphere {
     int material; // 0 = lambertian, 1 = metal
 } Sphere;
 
-typedef struct DirLight {
-    Vector3 direction;
+// type: 0 = directional, 1 = point
+typedef struct Light {
+    int type;
+    Vector3 direction; // used by directional lights
+    Vector3 position;  // used by point lights
     Vector3 color;
     float intensity;
-} DirLight;
+} Light;
 
 static inline Vector3 ColorToVec3(Color c) {
     return (Vector3){ (float)c.r/255.0f, (float)c.g/255.0f, (float)c.b/255.0f };
@@ -41,9 +44,11 @@ typedef struct AppState {
     int locLightCount;
     int camPosLoc;
     int invVpLoc;
+    int locKLinear;
+    int locKQuadratic;
     Sphere spheres[MAX_SPHERES];
     int sphereCount;
-    DirLight lights[MAX_LIGHTS];
+    Light lights[MAX_LIGHTS];
     int lightCount;
     int selectedSphere;
     bool isDragging;
@@ -85,9 +90,15 @@ static void SetLightUniforms(void) {
     char name[32];
     for (int i = 0; i < MAX_LIGHTS; i++) {
         int loc;
+        sprintf(name, "u_l%d_type", i);
+        if ((loc = GetShaderLocation(g.shader, name)) != -1)
+            SetShaderValue(g.shader, loc, &g.lights[i].type, SHADER_UNIFORM_INT);
         sprintf(name, "u_l%d_direction", i);
         if ((loc = GetShaderLocation(g.shader, name)) != -1)
             SetShaderValue(g.shader, loc, &g.lights[i].direction, SHADER_UNIFORM_VEC3);
+        sprintf(name, "u_l%d_position", i);
+        if ((loc = GetShaderLocation(g.shader, name)) != -1)
+            SetShaderValue(g.shader, loc, &g.lights[i].position, SHADER_UNIFORM_VEC3);
         sprintf(name, "u_l%d_color", i);
         if ((loc = GetShaderLocation(g.shader, name)) != -1)
             SetShaderValue(g.shader, loc, &g.lights[i].color, SHADER_UNIFORM_VEC3);
@@ -147,13 +158,25 @@ EMSCRIPTEN_KEEPALIVE void DeleteSelectedSphere(void) {
     SetSceneUniforms();
 }
 
-EMSCRIPTEN_KEEPALIVE float GetLightColorR(int i) { return (i >= 0 && i < g.lightCount) ? g.lights[i].color.x : 0; }
-EMSCRIPTEN_KEEPALIVE float GetLightColorG(int i) { return (i >= 0 && i < g.lightCount) ? g.lights[i].color.y : 0; }
-EMSCRIPTEN_KEEPALIVE float GetLightColorB(int i) { return (i >= 0 && i < g.lightCount) ? g.lights[i].color.z : 0; }
-EMSCRIPTEN_KEEPALIVE float GetLightIntensity(int i) { return (i >= 0 && i < g.lightCount) ? g.lights[i].intensity : 0; }
-EMSCRIPTEN_KEEPALIVE float GetLightDirX(int i) { return (i >= 0 && i < g.lightCount) ? g.lights[i].direction.x : 0; }
-EMSCRIPTEN_KEEPALIVE float GetLightDirY(int i) { return (i >= 0 && i < g.lightCount) ? g.lights[i].direction.y : 0; }
-EMSCRIPTEN_KEEPALIVE float GetLightDirZ(int i) { return (i >= 0 && i < g.lightCount) ? g.lights[i].direction.z : 0; }
+// --- Light getters ---
+EMSCRIPTEN_KEEPALIVE int   GetLightType(int i)      { return (i >= 0 && i < g.lightCount) ? g.lights[i].type : 0; }
+EMSCRIPTEN_KEEPALIVE float GetLightColorR(int i)     { return (i >= 0 && i < g.lightCount) ? g.lights[i].color.x : 0; }
+EMSCRIPTEN_KEEPALIVE float GetLightColorG(int i)     { return (i >= 0 && i < g.lightCount) ? g.lights[i].color.y : 0; }
+EMSCRIPTEN_KEEPALIVE float GetLightColorB(int i)     { return (i >= 0 && i < g.lightCount) ? g.lights[i].color.z : 0; }
+EMSCRIPTEN_KEEPALIVE float GetLightIntensity(int i)  { return (i >= 0 && i < g.lightCount) ? g.lights[i].intensity : 0; }
+EMSCRIPTEN_KEEPALIVE float GetLightDirX(int i)       { return (i >= 0 && i < g.lightCount) ? g.lights[i].direction.x : 0; }
+EMSCRIPTEN_KEEPALIVE float GetLightDirY(int i)       { return (i >= 0 && i < g.lightCount) ? g.lights[i].direction.y : 0; }
+EMSCRIPTEN_KEEPALIVE float GetLightDirZ(int i)       { return (i >= 0 && i < g.lightCount) ? g.lights[i].direction.z : 0; }
+EMSCRIPTEN_KEEPALIVE float GetLightPosX(int i)       { return (i >= 0 && i < g.lightCount) ? g.lights[i].position.x : 0; }
+EMSCRIPTEN_KEEPALIVE float GetLightPosY(int i)       { return (i >= 0 && i < g.lightCount) ? g.lights[i].position.y : 0; }
+EMSCRIPTEN_KEEPALIVE float GetLightPosZ(int i)       { return (i >= 0 && i < g.lightCount) ? g.lights[i].position.z : 0; }
+
+// --- Light setters ---
+EMSCRIPTEN_KEEPALIVE void SetLightType(int i, int type) {
+    if (i < 0 || i >= g.lightCount) return;
+    g.lights[i].type = type;
+    SetLightUniforms();
+}
 
 EMSCRIPTEN_KEEPALIVE void SetLightColor(int i, float r, float gr, float b) {
     if (i < 0 || i >= g.lightCount) return;
@@ -170,6 +193,12 @@ EMSCRIPTEN_KEEPALIVE void SetLightIntensity(int i, float val) {
 EMSCRIPTEN_KEEPALIVE void SetLightDir(int i, float x, float y, float z) {
     if (i < 0 || i >= g.lightCount) return;
     g.lights[i].direction = (Vector3){ x, y, z };
+    SetLightUniforms();
+}
+
+EMSCRIPTEN_KEEPALIVE void SetLightPos(int i, float x, float y, float z) {
+    if (i < 0 || i >= g.lightCount) return;
+    g.lights[i].position = (Vector3){ x, y, z };
     SetLightUniforms();
 }
 #endif
@@ -219,8 +248,14 @@ static void InitApp(void) {
     memset(&g.spheres[4], 0, sizeof(Sphere) * (MAX_SPHERES - 4));
 
     g.lightCount = 1;
-    g.lights[0] = (DirLight){ (Vector3){0.0f, 0.0f, -1.0f}, (Vector3){0.6f, 0.05f, 0.05f}, 0.9f };
-    memset(&g.lights[1], 0, sizeof(DirLight) * (MAX_LIGHTS - 1));
+    g.lights[0] = (Light){
+        .type = 0,  // directional
+        .direction = (Vector3){0.0f, 0.0f, -1.0f},
+        .position  = (Vector3){0.0f, 0.0f, 0.0f},
+        .color     = (Vector3){0.6f, 0.05f, 0.05f},
+        .intensity = 0.9f,
+    };
+    memset(&g.lights[1], 0, sizeof(Light) * (MAX_LIGHTS - 1));
 
     g.selectedSphere = -1;
     g.isDragging = false;
@@ -231,6 +266,16 @@ static void InitApp(void) {
     g.locLightCount = GetShaderLocation(g.shader, "lightCount");
     g.camPosLoc = GetShaderLocation(g.shader, "cameraPosition");
     g.invVpLoc = GetShaderLocation(g.shader, "invViewProj");
+    g.locKLinear = GetShaderLocation(g.shader, "k_linear");
+    g.locKQuadratic = GetShaderLocation(g.shader, "k_quadratic");
+
+    // Send default attenuation values
+    float kLinear = 0.09f;
+    float kQuadratic = 0.032f;
+    if (g.locKLinear != -1)
+        SetShaderValue(g.shader, g.locKLinear, &kLinear, SHADER_UNIFORM_FLOAT);
+    if (g.locKQuadratic != -1)
+        SetShaderValue(g.shader, g.locKQuadratic, &kQuadratic, SHADER_UNIFORM_FLOAT);
 
     SetSceneUniforms();
     SetLightUniforms();

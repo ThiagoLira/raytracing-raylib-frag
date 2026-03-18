@@ -26,10 +26,15 @@ uniform vec3  u_s8_center; uniform float u_s8_radius; uniform vec3  u_s8_color; 
 uniform vec3  u_s9_center; uniform float u_s9_radius; uniform vec3  u_s9_color; uniform int u_s9_material;
 
 // === Light uniforms (flat, WebGL 1.0) ===
-uniform vec3  u_l0_direction; uniform vec3  u_l0_color; uniform float u_l0_intensity;
-uniform vec3  u_l1_direction; uniform vec3  u_l1_color; uniform float u_l1_intensity;
-uniform vec3  u_l2_direction; uniform vec3  u_l2_color; uniform float u_l2_intensity;
-uniform vec3  u_l3_direction; uniform vec3  u_l3_color; uniform float u_l3_intensity;
+// type: 0 = directional, 1 = point
+uniform int   u_l0_type; uniform vec3  u_l0_direction; uniform vec3  u_l0_position; uniform vec3  u_l0_color; uniform float u_l0_intensity;
+uniform int   u_l1_type; uniform vec3  u_l1_direction; uniform vec3  u_l1_position; uniform vec3  u_l1_color; uniform float u_l1_intensity;
+uniform int   u_l2_type; uniform vec3  u_l2_direction; uniform vec3  u_l2_position; uniform vec3  u_l2_color; uniform float u_l2_intensity;
+uniform int   u_l3_type; uniform vec3  u_l3_direction; uniform vec3  u_l3_position; uniform vec3  u_l3_color; uniform float u_l3_intensity;
+
+// === Attenuation uniforms ===
+uniform float k_linear;
+uniform float k_quadratic;
 
 uniform float time;
 
@@ -118,11 +123,11 @@ void getSphere(const int idx, out vec3 center, out float radius, out vec3 color,
 
 // === Lighting ===
 
-void getLight(const int idx, out vec3 direction, out vec3 color, out float intensity) {
-    if (idx == 0) { direction = u_l0_direction; color = u_l0_color; intensity = u_l0_intensity; return; }
-    if (idx == 1) { direction = u_l1_direction; color = u_l1_color; intensity = u_l1_intensity; return; }
-    if (idx == 2) { direction = u_l2_direction; color = u_l2_color; intensity = u_l2_intensity; return; }
-    /* idx == 3 */ direction = u_l3_direction; color = u_l3_color; intensity = u_l3_intensity; return;
+void getLight(const int idx, out int type, out vec3 direction, out vec3 position, out vec3 color, out float intensity) {
+    if (idx == 0) { type = u_l0_type; direction = u_l0_direction; position = u_l0_position; color = u_l0_color; intensity = u_l0_intensity; return; }
+    if (idx == 1) { type = u_l1_type; direction = u_l1_direction; position = u_l1_position; color = u_l1_color; intensity = u_l1_intensity; return; }
+    if (idx == 2) { type = u_l2_type; direction = u_l2_direction; position = u_l2_position; color = u_l2_color; intensity = u_l2_intensity; return; }
+    /* idx == 3 */ type = u_l3_type; direction = u_l3_direction; position = u_l3_position; color = u_l3_color; intensity = u_l3_intensity; return;
 }
 
 // === Materials ===
@@ -178,20 +183,47 @@ vec3 colorRayIterative(in Ray initialRay, out vec3 outColor, inout float rngSeed
             outColor += accumulatedColor * hitColor;
             accumulatedColor *= hitColor;
 
-            // Apply directional lights at this hit
+            // Apply lights at this hit
             for (int li = 0; li < MAX_LIGHTS; li++) {
                 if (li >= lightCount) break;
-                vec3 lDir; vec3 lCol; float lInt;
-                getLight(li, lDir, lCol, lInt);
-                vec3 lightDir = normalize(lDir);
-                float NdotL = max(dot(closestHit.normal, -lightDir), 0.0);
+                int lType; vec3 lDir; vec3 lPos; vec3 lCol; float lInt;
+                getLight(li, lType, lDir, lPos, lCol, lInt);
+
+                // These will be filled differently per light type
+                vec3  toLight;           // unit vector from hit point toward the light
+                float attIntensity;      // intensity after attenuation
+                float maxShadowDist;     // how far the shadow ray should check
+
+                if (lType == 1) {
+                    // === POINT LIGHT ===
+                    // TODO(student): Exercise A, B, C — fill in:
+                    //   - toLight: normalized direction from hit point to light position
+                    //   - d: distance from hit point to light position
+                    //   - attIntensity: lInt / (1.0 + k_linear*d + k_quadratic*d*d)
+                    //   - maxShadowDist: the distance d (shadow ray shouldn't check past the light)
+		    vec3 dirTemp = lPos - closestHit.hitPoint;
+                    toLight = normalize(dirTemp);
+	            float dLight = length(dirTemp);
+                    attIntensity = lInt / (1.0 + k_linear*dLight + k_quadratic*dLight * dLight );
+                    maxShadowDist = dLight;
+                } else {
+                    // === DIRECTIONAL LIGHT (type 0) — existing behavior ===
+                    toLight = normalize(-lDir);
+                    attIntensity = lInt;       // no distance attenuation for directional lights
+                    maxShadowDist = 1e38;      // infinite — directional light is infinitely far
+                }
+
+                float NdotL = max(dot(closestHit.normal, toLight), 0.0);
+
                 // Shadow test
-                Ray shadowRay = Ray(closestHit.hitPoint + closestHit.normal * 0.0001, -lightDir);
+                Ray shadowRay = Ray(closestHit.hitPoint + closestHit.normal * 0.0001, toLight);
                 HitRecord shadowHit;
                 int si; vec3 sc; int sm;
                 findClosestHit(shadowRay, shadowHit, si, sc, sm);
-                if (si == -1) {
-                    outColor += accumulatedColor * lCol * lInt * NdotL;
+                // Only count a shadow if the blocker is closer than the light
+                bool inShadow = (si != -1) && (shadowHit.t < maxShadowDist);
+                if (!inShadow) {
+                    outColor += accumulatedColor * lCol * attIntensity * NdotL;
                 }
             }
 

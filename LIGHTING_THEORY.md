@@ -50,6 +50,12 @@ A directional light has a fixed direction everywhere — like sunlight. A **poin
 
 ### Math
 
+- **P** — the hit point on a surface
+- **N** — the unit outward normal at P
+- **V** — the unit vector from P toward the camera (view direction)
+- **L** — the unit vector from P toward a light source
+- **R** — a reflected or refracted direction
+
 Given a point light at position **P_light** with color **C_light** and intensity **I₀**:
 
 1. **Direction to light:**
