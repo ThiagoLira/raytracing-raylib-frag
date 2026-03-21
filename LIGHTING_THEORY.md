@@ -1,6 +1,26 @@
 # Lighting Theory for the Ray Tracer
 
-This document covers the math behind 8 lighting features you can add to the fragment shader ray tracer. Each section describes the physical intuition, the key equations, and how the feature plugs into the existing bounce loop.
+This document covers the math behind 9 lighting and rendering features for the fragment-shader ray tracer. Each section describes the physical intuition, the key equations, and a concrete implementation roadmap: which functions to write, which uniforms to add, and where in the existing code each feature plugs in.
+
+**The goal is to teach — not to hand you the solution.** Every section tells you *what* to build and *why*, but writing the GLSL is your job.
+
+## Codebase orientation
+
+You will be editing two files:
+
+- **`shaders/distance_web.glsl`** — the fragment shader where all ray tracing happens
+- **`main_web.c`** — the C host that creates the window, manages uniforms, and drives the render loop
+
+The shader already contains:
+- A basic ray-sphere intersection (`intersectSphere`)
+- A closest-hit loop (`findClosestHit`) that walks all spheres
+- A bounce loop (`colorRayIterative`) that traces rays and accumulates color
+- A direct lighting section inside the bounce loop that handles both directional and point lights
+- Shadow ray testing using `findClosestHit` on a ray from the hit point toward each light
+- A per-sphere getter (`getSphere`) and per-light getter (`getLight`) that work around WebGL 1.0's lack of dynamic array indexing
+- Basic RNG (`randomDouble`, `randomOnHemisphere`) seeded from pixel position and time
+
+**Lessons 1–2** explain features that are already present in the base shader. Read them to understand the code you're building on top of. **Lessons 3–9** are the features you will implement yourself.
 
 Throughout the document, these symbols are reused:
 
@@ -16,7 +36,7 @@ Throughout the document, these symbols are reused:
 
 ### Intuition
 
-Right now the shader adds directional light contribution unconditionally at the end of the bounce loop. In reality, a point should only receive direct light if nothing blocks the path between it and the light source. A **shadow ray** tests exactly that.
+A surface point should only receive direct light from a source if nothing blocks the path between them. A **shadow ray** tests exactly this: cast a ray from the hit point toward the light, and if it hits any geometry before reaching the light, the point is in shadow.
 
 ### Math
 
@@ -36,9 +56,18 @@ Given a hit point **P** with normal **N**, and a light direction **L** (unit vec
 
 3. If the shadow ray hits geometry → skip the direct light contribution for that light. If it reaches the light unobstructed → add the light contribution as before.
 
-### Connection to existing shader
+### What's already in the code
 
-The shader already has `intersectSphere`. You'd call it for the shadow ray before adding `dirlight1`'s contribution. The only new concept is the bias offset **εN** which you already use (0.0001) when spawning bounce rays.
+This feature is **already implemented** in the base shader. Look inside the light loop in `colorRayIterative`:
+
+- A `shadowRay` is constructed with origin at `closestHit.hitPoint + closestHit.normal * 0.0001` — the **εN** bias prevents the ray from immediately hitting the surface it starts on (a visual artifact called **shadow acne**)
+- `findClosestHit` is called on the shadow ray to check for blockers
+- The boolean `inShadow` gates whether the light contribution is added to `outColor`
+- The check `shadowHit.t < maxShadowDist` ensures that for point lights, only blockers *between* the surface and the light count as shadows (objects behind the light don't cast shadow)
+
+**Why this matters for later lessons:** The shadow test currently uses `findClosestHit`, which computes the full closest intersection including material lookups. In lesson 3 (AO) and lesson 5 (soft shadows), you'll fire many short rays per pixel. At that point, you'll want a cheaper helper — `anyHitWithin(ray, maxDist)` — that returns `true` at the first intersection without bothering to find the closest or look up materials.
+
+**Try this to verify you understand:** Temporarily comment out the shadow test (make `inShadow` always false) and observe how the scene looks without shadows. Then put it back.
 
 ---
 
@@ -49,12 +78,6 @@ The shader already has `intersectSphere`. You'd call it for the shadow ray befor
 A directional light has a fixed direction everywhere — like sunlight. A **point light** has a position in the world, so its direction and intensity vary with distance.
 
 ### Math
-
-- **P** — the hit point on a surface
-- **N** — the unit outward normal at P
-- **V** — the unit vector from P toward the camera (view direction)
-- **L** — the unit vector from P toward a light source
-- **R** — a reflected or refracted direction
 
 Given a point light at position **P_light** with color **C_light** and intensity **I₀**:
 
@@ -84,7 +107,7 @@ Given a point light at position **P_light** with color **C_light** and intensity
    attenuation = I₀ / (1 + k_linear · d + k_quadratic · d²)
    ```
 
-   where k_linear and k_quadratic are tunable constants.
+   where `k_linear` and `k_quadratic` are tunable constants (already declared as uniforms in the shader).
 
 4. **Diffuse contribution (Lambertian):**
 
@@ -92,11 +115,20 @@ Given a point light at position **P_light** with color **C_light** and intensity
    diffuse = C_light · attenuation · max(N · L, 0)
    ```
 
-5. **Shadow test range:** When casting a shadow ray toward a point light, you only count hits with **0 < t < d** (not beyond the light).
+5. **Shadow test range:** When casting a shadow ray toward a point light, you only count hits with **0 < t < d** (not beyond the light). This is the `maxShadowDist` variable.
 
-### Connection to existing shader
+### What's already in the code
 
-Replace the single `DirectionalLight` struct with a `PointLight` struct carrying `position`, `color`, `intensity`, and attenuation constants. Compute **L** per-hit-point instead of using a global direction.
+This feature is **already implemented** in the base shader. Inside the light loop:
+
+- The `Light` struct uses a `type` field: 0 = directional, 1 = point
+- The `if (lType == 1)` branch computes `toLight`, `attIntensity`, and `maxShadowDist` from the light's position
+- The attenuation formula uses the `k_linear` and `k_quadratic` uniforms, set from the C side with defaults of 0.09 and 0.032
+- The `else` branch handles directional lights: `toLight = normalize(-lDir)`, no attenuation, infinite `maxShadowDist`
+
+**Key architectural detail:** The light loop is designed so that `toLight`, `attIntensity`, and `maxShadowDist` are filled differently depending on `lType`, but the shadow test and Lambertian diffuse calculation after the type switch are shared. This means later features (specular, soft shadows) can also be written once and work for both light types.
+
+**Try this:** In the C code, change the light from directional (`type = 0`) to point (`type = 1`) and give it a position. Watch how the shading changes: the light direction now varies across the surface, and distant surfaces are dimmer.
 
 ---
 
@@ -140,9 +172,49 @@ Transform (x, y, z) from the tangent frame (where N = (0,0,1)) to world space us
 
 **r_max** controls the occlusion radius — how far away geometry can be and still count as occluding. Short rays (small r_max) give contact shadows; longer rays give broader darkening.
 
-### Connection to existing shader
+### Building the tangent frame
 
-You already have `randomOnHemisphere` which gives uniform hemisphere samples. For AO, fire K short rays (length ≤ r_max) from each hit point and count how many are blocked. Multiply the surface color by the resulting AO factor (1.0 = fully open, 0.0 = fully occluded).
+To transform from the tangent frame to world space, you need an orthonormal basis (tangent **T**, bitangent **B**, normal **N**). A standard approach:
+
+1. Pick an "up" vector that isn't parallel to **N** — typically `(0, 1, 0)`, but fall back to `(1, 0, 0)` when **N** is nearly vertical (check `abs(N.y) < 0.999`)
+2. **T** = normalize(cross(up, **N**))
+3. **B** = cross(**N**, **T**)
+
+Then the world-space direction is: **T** · x + **B** · y + **N** · z.
+
+### Implementation roadmap
+
+**New defines:**
+- `AO_SAMPLES` — how many hemisphere rays to fire (4 is a good starting point; temporal accumulation in lesson 9 will smooth it out)
+
+**New uniforms (shader):**
+- `aoRadius` (float) — maximum ray distance for occlusion test
+- `aoStrength` (float) — 0.0 = no AO, 1.0 = full AO
+
+**New functions (shader):**
+
+1. `cosineWeightedHemisphere(normal, seed)` → vec3 — generates a cosine-weighted random direction in the hemisphere around `normal`. This uses the tangent frame construction above. The base shader already has `randomOnHemisphere` which gives uniform samples, but cosine-weighted is better for AO because it matches the physical integral and reduces variance for the same sample count.
+
+2. `anyHitWithin(ray, maxDist)` → bool — tests the ray against all spheres and returns `true` as soon as any intersection with `0 < t < maxDist` is found. Unlike `findClosestHit`, this doesn't need to find the *closest* hit or look up materials — it exits early at the first blocker. You will reuse this function for shadow testing in lesson 5.
+
+3. `computeAO(hitPoint, normal, seed)` → float — fires `AO_SAMPLES` rays from `hitPoint` in cosine-weighted directions, counts how many are blocked within `aoRadius`, and returns the occlusion factor. A return value of 1.0 means fully open; 0.0 means fully occluded.
+
+**Where in the bounce loop:**
+- Call `computeAO` once per hit, *before* the light loop
+- Multiply the result into both the ambient term and the direct lighting contribution
+- For performance, only compute AO on the first few bounces (e.g., `depth < 3`) — deeper bounces contribute less to the final image and aren't worth the extra rays
+
+**On the C side:**
+- Add `aoRadius` and `aoStrength` to `AppState`
+- Look up their shader locations in `InitApp`
+- Set reasonable defaults (e.g., 0.5 and 0.5)
+- Send them via `SetShaderValue`
+
+**Early return optimization:** If `aoStrength` is zero, `computeAO` should return 1.0 immediately without firing any rays.
+
+**Common mistake:** Using `randomOnHemisphere` instead of `cosineWeightedHemisphere`. The uniform version wastes samples at glancing angles and produces noisier results for the same sample count.
+
+**How to verify:** Place two spheres close together (touching or nearly touching). You should see a darkening in the crevice between them. Set `aoStrength` to 1.0 to make it dramatic, then dial it back.
 
 ---
 
@@ -176,14 +248,38 @@ Concretely, in the iterative loop:
 1. When a ray hits an emissive surface with emission color **E** and emission strength **s**:
 
    ```
-   outColor += accumulatedColor · (E · s)
+   outColor += throughput · (E · s)
    ```
+
+   where `throughput` is the accumulated product of all surface colors along the ray path (called `accumulatedColor` in the base shader).
 
 2. An emissive surface can also reflect — if you want a glowing mirror, continue bouncing. If it's a pure light source (like a lamp), terminate the ray after adding emission.
 
-### Connection to existing shader
+### Implementation roadmap
 
-Add a material type (e.g., material == 2 for emissive). In the bounce loop, when you detect this material, add the emission contribution to `outColor` scaled by `accumulatedColor`. You can optionally terminate the ray or let it continue bouncing for combined emissive+reflective surfaces.
+**New material type:** material == 2 for emissive.
+
+**New per-sphere uniforms:**
+- `u_s*_emission` (vec3) — emission color (e.g., warm orange: (1.0, 0.8, 0.3))
+- `u_s*_emissionStrength` (float) — intensity multiplier (values > 1.0 make it glow brighter)
+
+**Shader changes:**
+
+1. Expand the sphere getter function to return emission fields alongside color and material. The current `getSphere` returns (center, radius, color, material). You'll need to either expand it or split it into a geometry getter and a material getter — the latter approach avoids re-fetching geometry data in the shadow/AO helpers that only need position and radius.
+
+2. In `colorRayIterative`, after fetching the hit material but *before* the direct lighting loop: add `throughput * emission * emissionStrength` to `outColor`. This should happen regardless of material type — non-emissive spheres will just have `emissionStrength = 0`.
+
+3. After adding emission, if `material == 2`: `break` out of the bounce loop. A pure emissive surface is a light source; it doesn't reflect or scatter.
+
+**C side:**
+- Add `emission` (Vector3) and `emissionStrength` (float) fields to the `Sphere` struct
+- Add setter/getter functions for the JS API if needed
+- Write a `MakeEmissive(pos, radius, color, emissionColor, emissionStrength)` helper for convenience
+- Update `SetSceneUniforms` to send the new per-sphere fields
+
+**How to verify:** Create a small sphere with high `emissionStrength` (e.g., 5.0) near a diffuse surface. The diffuse surface should pick up color from the emissive sphere via bounced rays. The emissive sphere itself should appear bright regardless of whether any lights illuminate it.
+
+**Common mistake:** Adding emission *after* the direct lighting loop or *after* the material type check. Emission should be added first, unconditionally, so that even the first bounce captures it.
 
 ---
 
@@ -221,23 +317,50 @@ with **L' = normalize(P' − P)**.
 L_direct(P) ≈ (A / M) Σ_{j=1}^{M} L_e · G(P, P'_j) · V(P, P'_j)
 ```
 
-To **sample a point P' on a disk light**: pick random u₁, u₂ ∈ [0,1), then:
+In practice, the implementation is much simpler than this integral suggests. Rather than formally evaluating the geometry term, you **jitter the shadow ray targets**:
 
-```
-θ = 2π · u₁
-ρ = r_light · sqrt(u₂)        (sqrt for uniform distribution over area)
-P' = P_light + ρ · (cos θ · T + sin θ · B)
-```
+- **Point light:** pick M random points near the light position (within a sphere of radius `r_light`), cast shadow rays toward each, and average the visibility
+- **Directional light:** add small random perturbations to the light direction
 
-where **T** and **B** are tangent and bitangent vectors of the disk.
+The fraction of unoccluded rays becomes the **shadow factor** — 0.0 = fully shadowed, 1.0 = fully lit, values in between = penumbra.
 
-To **sample a point on a sphere light**: use uniform sphere sampling and keep only the hemisphere facing the shading point, or use the solid-angle sampling formula for better efficiency.
+### Implementation roadmap
 
-Each sample fires a shadow ray from **P** toward **P'_j**. The fraction that are unoccluded determines the shadow softness.
+**New defines:**
+- `SOFT_SHADOW_SAMPLES` — how many jittered shadow rays to fire (4 is a good starting point)
 
-### Connection to existing shader
+**New per-light uniform:**
+- `u_l*_radius` (float) — the physical radius of the light. 0.0 = point source (hard shadow, single ray). Larger values = wider penumbra.
 
-Replace the single shadow ray from Section 1 with M jittered shadow rays toward random points on the light's surface. Average the results. More samples = smoother penumbra but higher cost.
+**New function (shader):**
+
+`computeShadowFactor(hitPoint, normal, toLight, maxDist, lightPos, lightRadius, lightType, seed)` → float
+
+This replaces the existing single shadow ray test in the light loop. The logic:
+
+1. If `lightRadius ≤ 0.001`: fall back to a single hard shadow ray (exactly what lesson 1 already does). Return 0.0 or 1.0.
+
+2. If `lightRadius > 0.001`: fire `SOFT_SHADOW_SAMPLES` jittered shadow rays. For each sample:
+   - Generate a random 3D jitter vector scaled by `lightRadius`
+   - For point lights: add the jitter to `lightPos` to get a jittered target, compute direction and distance from `hitPoint` to that target
+   - For directional lights: add a small fraction of the jitter to `toLight` and renormalize
+   - Cast the shadow ray using `anyHitWithin` (from lesson 3)
+   - Count unoccluded rays
+
+3. Return the fraction of unoccluded rays.
+
+**Where in the bounce loop:**
+- Replace the existing `inShadow` boolean check with a call to `computeShadowFactor`
+- Multiply the light contribution (diffuse + specular) by the returned factor instead of gating with an if/else
+
+**C side:**
+- Add `radius` (float) to the `Light` struct
+- Update `SetLightUniforms` and the getter/setter API to handle the new field
+- A directional light with radius 0.0 behaves identically to before (backward compatible)
+
+**How to verify:** Give a point light a radius of 0.3–0.5. The shadow edges should become soft and blurry instead of razor-sharp. Moving the light further from the surface should make shadows softer (the light subtends a larger angle). With radius 0.0 the shadow should be hard, identical to before.
+
+**Common mistake:** Using `findClosestHit` instead of `anyHitWithin` for the shadow samples. With multiple lights and multiple samples each, this function gets called many times per pixel — the early-exit optimization from lesson 3 matters here.
 
 ---
 
@@ -287,9 +410,37 @@ specular_normalized = ((n_s + 2) / (2π)) · max(N · H, 0)^(n_s)
 
 This ensures the total reflected energy doesn't exceed the incoming energy regardless of shininess.
 
-### Connection to existing shader
+### Implementation roadmap
 
-For Lambertian (material == 0) surfaces, after the diffuse bounce calculation, add the specular term using the direct light direction. You'd need to pass `n_s` and `k_s` per sphere (or as uniforms). This is additive to the existing diffuse computation.
+**New per-sphere uniforms:**
+- `u_s*_specular` (float) — the k_s coefficient. 0.0 = no specular. Good defaults: 0.05 for matte plastic, 0.5–0.8 for metal.
+- `u_s*_shininess` (float) — the n_s exponent. Good defaults: 32 for soft highlights, 128–256 for sharp ones.
+
+**Where in the bounce loop:**
+
+Specular goes *inside* the light loop, computed alongside diffuse — not after it. The steps:
+
+1. **Before the light loop:** Compute the view direction **V** = `normalize(cameraPosition - hitPoint)`. The `cameraPosition` is already available as a uniform.
+
+2. **Inside the light loop**, after computing the diffuse term and the shadow factor:
+   - Compute the half-vector **H** = `normalize(toLight + V)`
+   - Compute `NdotH = max(dot(normal, H), 0.0)`
+   - Apply the normalization factor: `(shininess + 2.0) / (2.0 * PI)`
+   - The specular color uses the **light** color, not the surface color — specular highlights show the color of the light source, not the material
+   - Gate the specular by the same shadow factor as diffuse (shadowed areas shouldn't have specular highlights)
+   - Add both terms together: `throughput * (diffuse + specular) * shadow * ao`
+
+**C side:**
+- Add `specular` (float) and `shininess` (float) to the `Sphere` struct
+- Update `SetSceneUniforms` to send them
+- Set sensible defaults per material type
+
+**Common mistakes:**
+- Using the surface color for specular instead of the light color — highlights should show the color of the light
+- Computing specular outside the light loop — you need the per-light direction **L** to compute **H**
+- Forgetting to guard with `hitSpec > 0.0 && hitShine > 0.0` to skip the computation when specular isn't configured
+
+**How to verify:** Set a sphere to have specular = 0.5, shininess = 128. Orbit the camera — you should see a bright, tight highlight that moves as the viewing angle changes. Lower the shininess to 8 and the highlight should become broad and soft.
 
 ---
 
@@ -346,7 +497,7 @@ where **cos θ** = |N · D| (use the refracted angle's cosine if entering a dens
 
 **R(θ)** is the probability of reflection. At each hit:
 - Generate a random number **u ∈ [0, 1)**
-- If **u < R(θ)** → reflect the ray (specular reflection)
+- If **u < R(θ)** or if total internal reflection → reflect the ray
 - Otherwise → refract the ray using direction **T**
 
 This stochastic branching naturally produces the correct blend of reflection and refraction over many samples.
@@ -361,9 +512,50 @@ A glass sphere is a **dielectric**. When a ray hits it:
 5. Spawn the new ray from P + εN (reflected) or P − εN (refracted, biased INTO the surface).
 6. Attenuation for clear glass is (1, 1, 1) — glass doesn't absorb. Tinted glass multiplies by a color.
 
-### Connection to existing shader
+### Implementation roadmap
 
-Add material type == 2 (or 3, if 2 is emissive) for dielectric. In the bounce loop, when this material is hit, compute the refraction ratio, check for total internal reflection, evaluate Schlick, and stochastically choose reflect vs. refract. The existing RNG (`randomDouble`) provides the random threshold.
+**New material type:** material == 3 for dielectric (glass). Material 2 is already taken by emissive.
+
+**New per-sphere uniform:**
+- `u_s*_ior` (float) — index of refraction. 1.5 for glass, 1.33 for water, 2.42 for diamond.
+
+**GLSL built-ins you should use:**
+- `reflect(D, N)` — computes the reflection of direction D about normal N. Don't rewrite this by hand.
+- `refract(D, N, eta)` — computes the refracted direction using Snell's law. Returns `vec3(0)` on total internal reflection in some implementations, but you should check for TIR explicitly using the sin²(θ₂) > 1 condition before calling it.
+
+**New function (shader):**
+
+`scatterDielectric(currentRay, hit, ior, seed, scattered, attenuation)` — determines whether the ray reflects or refracts, and outputs the scattered ray and attenuation.
+
+The logic, step by step:
+1. Normalize the incoming ray direction
+2. Check `dot(unitDir, hit.normal)` to determine inside vs. outside. If positive (exiting): flip normal, set `etaRatio = ior`. If negative (entering): keep normal, set `etaRatio = 1.0 / ior`.
+3. Compute cos(θ) and sin²(θ₂)
+4. Compute Schlick reflectance R₀ from `etaRatio`, then R(θ) using cos(θ)
+5. If total internal reflection OR `randomDouble(seed) < R(θ)`: reflect. Spawn ray from `hitPoint + normal * ε`.
+6. Otherwise: refract. Spawn ray from `hitPoint - normal * ε` (biased *into* the surface).
+7. Set attenuation to `vec3(1.0)` for clear glass.
+
+**Where in the bounce loop:**
+
+In the scatter section at the bottom of the loop (where metal and Lambertian are already handled), add a branch for `material == 3` that calls `scatterDielectric` instead of the existing scatter logic.
+
+**C side:**
+- Add `ior` (float) to the `Sphere` struct (default 1.5)
+- Add a `MakeGlass(pos, radius, tint, ior)` helper
+- Update setters/getters and `SetSceneUniforms`
+
+**Critical detail — the ray spawn bias:**
+- Reflection: offset along **+N** (away from the surface, into the medium the ray came from)
+- Refraction: offset along **−N** (into the surface, into the medium the ray is entering)
+
+Getting this wrong produces black spots, incorrect self-shadowing, or the refracted ray immediately re-hitting the same surface.
+
+**How to verify:** Create a glass sphere (ior = 1.5) on a colored ground plane. You should see:
+- The ground visible through the sphere, but distorted (refraction)
+- A bright reflection of the sky/lights on the sphere surface (Fresnel)
+- At grazing angles (edges of the sphere), more reflection than refraction
+- If you set ior = 1.0, the sphere should become invisible (no bending)
 
 ---
 
@@ -423,21 +615,189 @@ The order matters:
 5. Output                                →  fragColor = vec4(C_final, 1.0)
 ```
 
-### Connection to existing shader
+### Implementation roadmap
 
-Apply these operations at the very end of `main()`, after averaging the samples and before writing to `gl_FragColor`. Remove the existing `clampColor` calls inside the bounce loop (let values exceed 1.0 during accumulation), and instead apply tone mapping + gamma as the final step.
+**New uniform:**
+- `toneMapMode` (int) — 0 = no tone mapping, 1 = Reinhard, 2 = ACES. This lets you toggle between methods at runtime.
+
+**New functions (shader):**
+- `tonemapReinhard(c)` → vec3 — applies the Reinhard operator per channel
+- `tonemapACES(c)` → vec3 — applies the ACES filmic curve per channel
+- `gammaCorrect(c)` → vec3 — applies gamma correction: `pow(max(c, 0.0), vec3(1.0 / 2.2))`
+
+**Where this goes:**
+
+At the very end of `main()`, after the multi-sample average is computed and before writing to `gl_FragColor`:
+
+1. Apply tone mapping based on `toneMapMode`
+2. Clamp to [0, 1]
+3. Apply gamma correction
+4. Write to `gl_FragColor`
+
+**Important:** Do NOT clamp colors inside the bounce loop. Let HDR values exceed 1.0 during accumulation — that's the whole point. Tone mapping at the end compresses them gracefully.
+
+**C side:**
+- Add `toneMapMode` (int) to `AppState`
+- Look up the shader location in `InitApp`
+- Set a default (2 for ACES is a good choice)
+- Expose getter/setter for the UI
+
+**How to verify:** Create a bright emissive sphere (`emissionStrength = 10`). Without tone mapping (mode 0), the area around it will blow out to white. With Reinhard (mode 1), the bright areas compress but darks stay. With ACES (mode 2), you get richer contrast with a filmic look. Toggle gamma correction off (temporarily output linear values) — the whole image will look unnaturally dark, which proves gamma is working.
+
+**Common mistake:** Applying gamma correction inside the bounce loop or before tone mapping. Gamma is always the very last step before output. Everything up to that point operates in linear space.
+
+---
+
+## 9. Temporal Accumulation and Denoising
+
+### Intuition
+
+By this point you have three sources of Monte Carlo noise in your ray tracer: ambient occlusion (lesson 3), soft shadows (lesson 5), and stochastic refraction (lesson 7). Each of these fires a small number of random rays per pixel per frame and averages the results. With only K = 4 samples, the image looks grainy — individual pixels "guess" different random directions each frame, producing visible speckle.
+
+Monte Carlo noise decreases as **1 / √N**, where N is the total number of samples. To halve the noise you need 4× as many samples. Raising the per-frame sample count (say from 4 to 64) works but kills performance. A much better strategy: **accumulate samples across frames**. Each frame contributes 1 new sample, and the running average over N frames converges to a clean image — giving you the quality of N samples per pixel at the cost of only 1 sample per frame.
+
+### Math
+
+#### Running average
+
+Given a sequence of per-pixel color samples **C₁, C₂, …, Cₙ** from N successive frames, the Monte Carlo estimate is:
+
+```
+C̄ₙ = (1/N) Σᵢ₌₁ᴺ Cᵢ
+```
+
+This can be computed **incrementally** without storing all previous samples:
+
+```
+C̄ₙ = C̄ₙ₋₁ + (1/N)(Cₙ − C̄ₙ₋₁)
+     = mix(C̄ₙ₋₁, Cₙ, 1/N)
+```
+
+Each frame you blend the new sample with the accumulated result using weight **α = 1/N**. As N grows, each new sample has less influence and the image converges.
+
+#### Gamma-correct accumulation
+
+Accumulation must happen in **linear** color space. If the stored buffer contains gamma-corrected values (as it will, since your output goes through gamma correction before display), you must undo the gamma before blending and reapply it after:
+
+```
+C_linear_prev = C_stored ^ 2.2        ← un-gamma
+C_linear_new  = tonemap(raytrace())    ← new sample (linear, tone-mapped)
+C_blended     = mix(C_linear_prev, C_linear_new, 1/N)
+C_stored      = C_blended ^ (1/2.2)   ← re-gamma for storage and display
+```
+
+Averaging gamma-corrected values directly (skipping the un-gamma / re-gamma) produces visible brightness errors — dark areas appear too dark and gradients show banding.
+
+#### Ping-pong buffers
+
+You cannot read from and write to the same texture in the same draw call (this is undefined behavior in OpenGL / WebGL). The solution is **ping-pong**: maintain two off-screen textures A and B.
+
+```
+Frame 1: read nothing        → write result to A
+Frame 2: read A as input     → write blended result to B
+Frame 3: read B as input     → write blended result to A
+Frame 4: read A as input     → write blended result to B
+...
+```
+
+Each frame, swap which buffer is read and which is written. Display whichever was most recently written.
+
+#### When to reset
+
+The accumulated average is only valid while the scene is static. When anything changes — camera position, sphere properties, light settings — the old accumulation is stale. Reset the frame counter to 1 so the next frame writes a fresh sample with no blending.
+
+### RNG quality
+
+The accumulation exposes a hidden problem: **seed quality**. The common GLSL pattern:
+
+```
+seed = fract(sin(seed * 12.9898) * 43758.5453);
+return seed;
+```
+
+feeds each output back as the next input, creating a 1D feedback loop. This produces correlated sequences — adjacent pixels get similar random numbers, and patterns emerge across frames. Two improvements fix this:
+
+**1. Counter-based RNG.** Instead of feeding the output back, increment a counter and hash it. The counter guarantees the input to the hash is always different. The hash is used as a pure function, not a feedback loop. Your `randomDouble` function should increment `currentSeed` by a fixed amount (e.g., 1.0), then hash the counter to get a return value.
+
+**2. Per-pixel, per-frame seed initialization.** Use a 2D hash of the pixel position to decorrelate pixels, and vary by frame count to decorrelate frames. A good 2D → 1D hash (Dave Hoskins' "Hash without Sine") avoids precision issues that the `sin`-based hash can have on some GPUs:
+
+```
+float hash12(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+```
+
+Combine: `seed = hash12(gl_FragCoord.xy) * large_number + float(frameCount) * irrational_offset`
+
+This ensures every pixel on every frame starts from a unique, well-distributed seed.
+
+### Sub-pixel jitter (anti-aliasing)
+
+With only 1 sample per pixel per frame, you also get free anti-aliasing by **jittering** the ray within the pixel. Each frame, offset the screen coordinate by a random amount in the range ±0.5 pixels before unprojecting:
+
+```
+vec2 pixelSize = 2.0 / resolution;   // size of one pixel in NDC space
+vec2 jitter = (vec2(rand(), rand()) - 0.5) * pixelSize;
+vec2 ndc = fragTexCoord * 2.0 - 1.0 + jitter;
+```
+
+Over many accumulated frames, the jittered samples cover the full pixel area, smoothing edges and sub-pixel detail without any additional cost. Note that the jitter must be in NDC space (where the full screen spans -1 to +1), not in world space — the original shader's jitter values of ~1e-10 are far too small to have any effect.
+
+### Implementation roadmap
+
+This lesson requires changes on **both** the shader and the C/host side.
+
+**New uniforms (shader):**
+- `frameCount` (int) — how many frames have been accumulated
+- `accumTexture` (sampler2D) — the previous frame's accumulated result, bound as a second texture
+- `resolution` (vec2) — screen dimensions in pixels, needed for proper sub-pixel jitter
+
+**Shader changes:**
+
+1. Add the `hash12` function and rewrite `randomDouble` to use a counter-based approach: increment the seed by 1.0 each call, then hash it, instead of feeding the output back.
+
+2. Replace the initial seed calculation. Instead of `gl_FragCoord.x * 0.123 + gl_FragCoord.y * 0.456 + time`, use `hash12(gl_FragCoord.xy)` combined with `frameCount`.
+
+3. Replace the multi-sample loop (currently 4 or 8 `samples_per_pixel`) with a **single sample** per frame, but with proper sub-pixel jitter on the NDC coordinates before unprojecting.
+
+4. In `main()`, after tone mapping and clamping but *before* gamma correction:
+   - If `frameCount > 1`: read the previous frame from `accumTexture` using `texture2D`, un-gamma it (raise to power 2.2), and `mix` with the new linear sample using blend factor `1.0 / float(frameCount)`
+   - Apply gamma correction to the blended result
+
+5. Cap the blend factor denominator at some maximum (e.g., 512) to prevent floating-point precision issues at very high frame counts.
+
+**C side — the ping-pong setup:**
+
+1. **AppState additions:** Two `RenderTexture2D` buffers (the ping-pong pair), an `accumIndex` (int — which buffer was last written), `frameCount` (int), shader locations for `frameCount`, `accumTexture`, and `resolution`, and a `prevCamPos` (Vector3) for change detection.
+
+2. **In `InitApp`:** Create both accumulation textures at screen resolution using `LoadRenderTexture`. Look up the three new shader locations. Send the `resolution` uniform once (it doesn't change).
+
+3. **Reset `frameCount` to 0** in `SetSceneUniforms`, `SetLightUniforms`, and `SetRenderUniforms` — these are already called whenever anything in the scene changes, so one line in each resets the accumulation automatically.
+
+4. **In `UpdateDrawFrame`:** Before rendering, compare `camera.position` with `prevCamPos` — if different, reset `frameCount` to 0 and save the new position. Increment `frameCount` and send it to the shader. Bind the *read* accumulation texture using `SetShaderValueTexture`. Render the raytrace pass into the *write* accumulation texture using `BeginTextureMode`. Swap `accumIndex`. Display the latest accumulation texture to screen.
+
+**How to verify:** Run the app and hold the camera still. The image should start noisy and progressively become clean over 1–2 seconds. Move the camera — the image should reset to noisy and converge again. If it doesn't converge, the accumulation blending or the frameCount reset is wrong. If it converges but has brightness errors, you're probably averaging in gamma space (forgot the un-gamma step).
+
+**Common mistakes:**
+- Accumulating in gamma space (averaging gamma-corrected values without the un-gamma / re-gamma round trip)
+- Forgetting to reset `frameCount` when the scene changes — the accumulated image smears old frames into new
+- Using the same texture for both read and write in a single draw call (undefined behavior in OpenGL/WebGL)
+- Using `time` as the only source of seed variation — frames close in time get near-identical seeds and don't contribute new information
 
 ---
 
 ## Summary Table
 
-| Feature | Key equation | Main new concept |
-|---|---|---|
-| Shadow rays | Reuse intersection test for shadow ray | Visibility function V(P, L) |
-| Point lights | attenuation = I₀ / d² | Per-hit light direction + falloff |
-| Ambient occlusion | AO = (1/K) Σ V(P, ωᵢ) | Monte Carlo hemisphere visibility |
-| Emissive materials | outColor += accumulated · E · s | L_emit term in rendering equation |
-| Soft shadows | L = (A/M) Σ Lₑ · G · V | Jittered samples on light surface |
-| Blinn-Phong specular | k_s · (N · H)^n_s | Half-vector H = normalize(L + V) |
-| Refraction | η₁ sin θ₁ = η₂ sin θ₂ + Schlick | Stochastic reflect/refract branching |
-| Tone mapping + gamma | Reinhard: C/(1+C), then C^(1/2.2) | HDR compression before display |
+| # | Feature | Key equation | Main new concept |
+|---|---|---|---|
+| 1 | Shadow rays | Reuse intersection test for shadow ray | Visibility function V(P, L) |
+| 2 | Point lights | attenuation = I₀ / (1 + k₁d + k₂d²) | Per-hit light direction + falloff |
+| 3 | Ambient occlusion | AO = (1/K) Σ V(P, ωᵢ) | Monte Carlo hemisphere visibility |
+| 4 | Emissive materials | outColor += throughput · E · s | L_emit term in rendering equation |
+| 5 | Soft shadows | shadow = (1/M) Σ V(P, P'ⱼ) | Jittered samples toward light surface |
+| 6 | Blinn-Phong specular | k_s · ((n_s+2)/2π) · (N · H)^n_s | Half-vector H = normalize(L + V) |
+| 7 | Refraction | η₁ sin θ₁ = η₂ sin θ₂ + Schlick | Stochastic reflect/refract branching |
+| 8 | Tone mapping + gamma | Reinhard: C/(1+C), then C^(1/2.2) | HDR compression before display |
+| 9 | Temporal accumulation | C̄ₙ = mix(C̄ₙ₋₁, Cₙ, 1/N) | Running average + ping-pong buffers |

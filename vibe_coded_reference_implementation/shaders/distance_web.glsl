@@ -112,6 +112,9 @@ uniform float aoRadius;
 uniform float aoStrength;
 uniform int   toneMapMode; // 0 = none, 1 = Reinhard, 2 = ACES
 uniform float time;
+uniform int   frameCount;
+uniform sampler2D accumTexture;
+uniform vec2  resolution;
 
 // ============================================================
 // Structs
@@ -129,11 +132,21 @@ struct HitRecord {
 };
 
 // ============================================================
-// RNG
+// RNG — hash-based (no feedback loop)
 // ============================================================
+
+// 2D -> 1D hash (Dave Hoskins, "Hash without Sine")
+float hash12(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+// Counter-based RNG: increment seed, hash to get value
 float randomDouble(inout float currentSeed) {
-    currentSeed = fract(sin(currentSeed * 12.9898) * 43758.5453);
-    return currentSeed;
+    currentSeed += 1.0;
+    return fract(sin(dot(vec2(currentSeed * 0.129898, currentSeed * 0.78233),
+                         vec2(127.1, 311.7))) * 43758.5453);
 }
 
 vec3 randomVec3(inout float currentSeed) {
@@ -540,35 +553,40 @@ vec3 gammaCorrect(vec3 c) {
 // Main
 // ============================================================
 void main() {
-    float seed = gl_FragCoord.x * 0.123 + gl_FragCoord.y * 0.456 + time;
+    // Per-pixel seed: 2D hash decorrelates pixels, golden-ratio step decorrelates frames
+    float seed = hash12(gl_FragCoord.xy) * 1741.0 + float(frameCount) * 5.7831;
 
-    // Reconstruct world-space ray from screen coordinates
-    vec2 ndc = fragTexCoord * 2.0 - 1.0;
+    // Sub-pixel jitter for anti-aliasing (proper ±0.5 pixel offset in NDC)
+    vec2 pixelSize = 2.0 / resolution;
+    vec2 jitter = (vec2(randomDouble(seed), randomDouble(seed)) - 0.5) * pixelSize;
+
+    // Reconstruct world-space ray from jittered screen coordinates
+    vec2 ndc = fragTexCoord * 2.0 - 1.0 + jitter;
     vec4 clipPos = vec4(ndc, -1.0, 1.0);
     vec4 worldPos4 = invViewProj * clipPos;
     vec3 worldPos = worldPos4.xyz / worldPos4.w;
 
-    // Multi-sample anti-aliasing
-    const int samples_per_pixel = 4;
-    vec3 outputColor = vec3(0.0);
-    for (int i = 0; i < samples_per_pixel; i++) {
-        vec3 jitter = randomVec3(-0.000000001, 0.0000000001, seed);
-        Ray sampleRay = Ray(cameraPosition, normalize(worldPos - cameraPosition + jitter));
-        outputColor += colorRayIterative(sampleRay, seed);
-    }
-    outputColor /= float(samples_per_pixel);
+    // Single sample per frame — temporal accumulation provides convergence
+    Ray sampleRay = Ray(cameraPosition, normalize(worldPos - cameraPosition));
+    vec3 outputColor = colorRayIterative(sampleRay, seed);
 
-    // Feature 8: Tone mapping pipeline
-    //   1. Raw HDR from ray tracing → outputColor
-    //   2. Tone map (Reinhard or ACES)
-    //   3. Clamp to [0, 1]
-    //   4. Gamma correct
+    // Tone map to [0,1] (linear)
     if (toneMapMode == 1) {
         outputColor = tonemapReinhard(outputColor);
     } else if (toneMapMode == 2) {
         outputColor = tonemapACES(outputColor);
     }
     outputColor = clamp(outputColor, 0.0, 1.0);
+
+    // Temporal accumulation: blend with previous frames in linear space
+    if (frameCount > 1) {
+        vec3 prev = texture2D(accumTexture, fragTexCoord).rgb;
+        prev = pow(prev, vec3(2.2));  // un-gamma to linear
+        float blendFactor = 1.0 / min(float(frameCount), 512.0);
+        outputColor = mix(prev, outputColor, blendFactor);
+    }
+
+    // Gamma correct for display (stored in accumulation buffer this way)
     outputColor = gammaCorrect(outputColor);
 
     gl_FragColor = vec4(outputColor, 1.0);

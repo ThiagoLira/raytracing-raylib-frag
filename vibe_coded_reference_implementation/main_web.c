@@ -75,11 +75,20 @@ typedef struct AppState {
     float aoRadius;
     float aoStrength;
     int toneMapMode;
+    // Temporal accumulation
+    RenderTexture2D accumTexture[2];
+    int accumIndex;
+    int frameCount;
+    int locFrameCount;
+    int locAccumTexture;
+    int locResolution;
+    Vector3 prevCamPos;
 } AppState;
 
 static AppState g;
 
 static void SetSceneUniforms(void) {
+    g.frameCount = 0;  // reset accumulation on scene change
     if (g.locSphereCount != -1)
         SetShaderValue(g.shader, g.locSphereCount, &g.sphereCount, SHADER_UNIFORM_INT);
 
@@ -127,6 +136,7 @@ static void SetSceneUniforms(void) {
 }
 
 static void SetLightUniforms(void) {
+    g.frameCount = 0;  // reset accumulation on light change
     if (g.locLightCount != -1)
         SetShaderValue(g.shader, g.locLightCount, &g.lightCount, SHADER_UNIFORM_INT);
 
@@ -155,6 +165,7 @@ static void SetLightUniforms(void) {
 }
 
 static void SetRenderUniforms(void) {
+    g.frameCount = 0;  // reset accumulation on render setting change
     if (g.locAORadius != -1)
         SetShaderValue(g.shader, g.locAORadius, &g.aoRadius, SHADER_UNIFORM_FLOAT);
     if (g.locAOStrength != -1)
@@ -482,6 +493,19 @@ static void InitApp(void) {
     SetRenderUniforms();
 
     g.targetTexture = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
+
+    // Temporal accumulation setup
+    g.locFrameCount = GetShaderLocation(g.shader, "frameCount");
+    g.locAccumTexture = GetShaderLocation(g.shader, "accumTexture");
+    g.locResolution = GetShaderLocation(g.shader, "resolution");
+    float res[2] = {(float)SCREEN_WIDTH, (float)SCREEN_HEIGHT};
+    if (g.locResolution != -1)
+        SetShaderValue(g.shader, g.locResolution, res, SHADER_UNIFORM_VEC2);
+    g.accumTexture[0] = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
+    g.accumTexture[1] = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
+    g.accumIndex = 0;
+    g.frameCount = 0;
+    g.prevCamPos = g.camera.position;
 }
 
 static void UpdateDrawFrame(void) {
@@ -558,10 +582,23 @@ static void UpdateDrawFrame(void) {
         }
     }
 
-    // Render
+    // Detect camera change -> reset accumulation
+    if (g.camera.position.x != g.prevCamPos.x ||
+        g.camera.position.y != g.prevCamPos.y ||
+        g.camera.position.z != g.prevCamPos.z) {
+        g.frameCount = 0;
+        g.prevCamPos = g.camera.position;
+    }
+
+    // Advance accumulation frame counter
+    g.frameCount++;
+    if (g.locFrameCount != -1)
+        SetShaderValue(g.shader, g.locFrameCount, &g.frameCount, SHADER_UNIFORM_INT);
+
     float t = (float)GetTime();
     if (g.locTime != -1) SetShaderValue(g.shader, g.locTime, &t, SHADER_UNIFORM_FLOAT);
 
+    // Rasterize geometry (used as quad source for the raytrace shader)
     BeginTextureMode(g.targetTexture);
         ClearBackground(LIGHTGRAY);
         BeginMode3D(g.camera);
@@ -574,18 +611,24 @@ static void UpdateDrawFrame(void) {
         EndMode3D();
     EndTextureMode();
 
-    BeginDrawing();
+    // Set camera uniforms for the raytrace shader
+    Matrix view = GetCameraMatrix(g.camera);
+    float aspect = (float)SCREEN_WIDTH / (float)SCREEN_HEIGHT;
+    Matrix proj = MatrixPerspective(g.camera.fovy * DEG2RAD, aspect, 0.1f, 100.0f);
+    Matrix viewProj = MatrixMultiply(view, proj);
+    Matrix invViewProj = MatrixInvert(viewProj);
+    if (g.camPosLoc != -1) SetShaderValue(g.shader, g.camPosLoc, &g.camera.position, SHADER_UNIFORM_VEC3);
+    if (g.invVpLoc != -1) SetShaderValueMatrix(g.shader, g.invVpLoc, invViewProj);
+
+    // Raytrace into accumulation buffer (ping-pong)
+    int readIdx = g.accumIndex;
+    int writeIdx = 1 - g.accumIndex;
+
+    BeginTextureMode(g.accumTexture[writeIdx]);
         ClearBackground(BLACK);
-
-        Matrix view = GetCameraMatrix(g.camera);
-        float aspect = (float)SCREEN_WIDTH / (float)SCREEN_HEIGHT;
-        Matrix proj = MatrixPerspective(g.camera.fovy * DEG2RAD, aspect, 0.1f, 100.0f);
-        Matrix viewProj = MatrixMultiply(view, proj);
-        Matrix invViewProj = MatrixInvert(viewProj);
-        if (g.camPosLoc != -1) SetShaderValue(g.shader, g.camPosLoc, &g.camera.position, SHADER_UNIFORM_VEC3);
-        if (g.invVpLoc != -1) SetShaderValueMatrix(g.shader, g.invVpLoc, invViewProj);
-
         BeginShaderMode(g.shader);
+            if (g.frameCount > 1 && g.locAccumTexture != -1)
+                SetShaderValueTexture(g.shader, g.locAccumTexture, g.accumTexture[readIdx].texture);
             DrawTextureRec(
                 g.targetTexture.texture,
                 (Rectangle){ 0, 0, (float)g.targetTexture.texture.width, (float)-g.targetTexture.texture.height },
@@ -593,7 +636,20 @@ static void UpdateDrawFrame(void) {
                 WHITE
             );
         EndShaderMode();
+    EndTextureMode();
 
+    g.accumIndex = writeIdx;
+
+    // Display the accumulated result
+    BeginDrawing();
+        ClearBackground(BLACK);
+        DrawTextureRec(
+            g.accumTexture[g.accumIndex].texture,
+            (Rectangle){ 0, 0, (float)g.accumTexture[g.accumIndex].texture.width,
+                         (float)-g.accumTexture[g.accumIndex].texture.height },
+            (Vector2){ 0, 0 },
+            WHITE
+        );
         DrawFPS(10, 10);
     EndDrawing();
 }
@@ -609,6 +665,8 @@ int main(void) {
     }
     if (g.shader.id != 0) UnloadShader(g.shader);
     UnloadRenderTexture(g.targetTexture);
+    UnloadRenderTexture(g.accumTexture[0]);
+    UnloadRenderTexture(g.accumTexture[1]);
     CloseWindow();
 #endif
 
