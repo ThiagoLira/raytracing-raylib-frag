@@ -21,8 +21,8 @@
 #include <string.h>
 #include <math.h>
 
-#define W 960
-#define H 540
+#define W 1280
+#define H 720
 
 static struct {
     Camera3D cam;
@@ -55,6 +55,7 @@ static Shader LoadVer(const char *p) {
 static void Init(void) {
     InitWindow(W, H, "Lesson 1 — From Pixels to Rays");
     SetTargetFPS(60);
+    
 
     g.cam = (Camera3D){ .up={0,1,0}, .fovy=45, .projection=CAMERA_PERSPECTIVE };
     g.target = (Vector3){0, 0, -2};
@@ -71,7 +72,7 @@ static void Init(void) {
     g.locSphereRadius = GetShaderLocation(g.shader, "sphereRadius");
     g.locSphereColor  = GetShaderLocation(g.shader, "sphereColor");
 
-    float res[2] = {W, H};
+    float res[2] = {(float)W, (float)H};
     SetShaderValue(g.shader, g.locRes, res, SHADER_UNIFORM_VEC2);
 
     Vector3 sc = {0, 0, -2}; float sr = 1.0f; float scol[3] = {0.8f, 0.3f, 0.3f};
@@ -135,8 +136,7 @@ static void Frame(void) {
     BeginDrawing();
         ClearBackground(BLACK);
         BeginShaderMode(g.shader);
-            DrawTextureRec(g.canvas.texture,
-                (Rectangle){0,0,(float)W,(float)-H}, (Vector2){0,0}, WHITE);
+            DrawTexturePro(g.canvas.texture, (Rectangle){0,0,(float)g.canvas.texture.width,(float)-g.canvas.texture.height}, (Rectangle){0,0,W,H}, (Vector2){0,0}, 0, WHITE);
         EndShaderMode();
         DrawFPS(10,10);
 
@@ -147,6 +147,8 @@ static void Frame(void) {
         DrawText(stageDetail[g.mode], 10, H-35, 14, (Color){200,200,160,220});
         DrawText("[1-6] switch stages  |  Right-drag: orbit  |  Scroll: zoom",
                  10, H-16, 13, (Color){160,160,140,180});
+        // Auto-screenshot for visual verification
+        { static int _af = 0; if (++_af == 10) TakeScreenshot("/tmp/lesson1.png"); }
     EndDrawing();
 }
 

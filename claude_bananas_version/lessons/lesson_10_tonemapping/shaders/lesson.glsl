@@ -231,23 +231,9 @@ void main() {
         linear_color = mix(prev, newSample, blend);
     }
 
-    // Exposure adjustment (EV stops: each +1 = double brightness)
-    linear_color *= pow(2.0, exposure);
-
-    // Apply selected tone mapper
-    vec3 mapped;
-    if (toneMapMode == 1) {
-        mapped = tonemapReinhard(linear_color);
-    } else if (toneMapMode == 2) {
-        mapped = tonemapACES(linear_color);
-    } else if (toneMapMode == 3) {
-        mapped = tonemapAgX(linear_color);
-    } else {
-        mapped = clamp(linear_color, 0.0, 1.0); // raw clamp — harsh!
-    }
-
-    // sRGB gamma
-    mapped = linearToSRGB(mapped);
-
-    finalColor = vec4(mapped, 1.0);
+    // Output LINEAR HDR to accumulation buffer.
+    // Tone mapping + gamma are applied in the display shader,
+    // NOT here — otherwise the accumulated result gets tone-mapped
+    // again each frame and the image darkens to black.
+    finalColor = vec4(linear_color, 1.0);
 }

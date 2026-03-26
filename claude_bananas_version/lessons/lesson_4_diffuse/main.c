@@ -15,8 +15,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define W 960
-#define H 540
+#define W 1280
+#define H 720
 
 static struct {
     Camera3D cam;
@@ -51,6 +51,7 @@ static Shader LoadVer(const char *p) {
 static void Init(void) {
     InitWindow(W, H, "Lesson 4 — Diffuse Reflection");
     SetTargetFPS(60);
+    
     g.cam = (Camera3D){ .up={0,1,0}, .fovy=45, .projection=CAMERA_PERSPECTIVE };
     g.target = (Vector3){-0.5f, 0.3f, -2.2f};
     g.dist = 5.0f; g.angleH = 0.2f; g.angleV = 0.2f;
@@ -65,7 +66,7 @@ static void Init(void) {
     g.locFrame   = GetShaderLocation(g.shader, "frameCount");
     g.locSPP     = GetShaderLocation(g.shader, "spp");
 
-    float res[2] = {W, H};
+    float res[2] = {(float)W, (float)H};
     SetShaderValue(g.shader, g.locRes, res, SHADER_UNIFORM_VEC2);
     g.mode = 1; g.sppIdx = 2; g.spp = sppOptions[g.sppIdx];
     SetShaderValue(g.shader, g.locMode, &g.mode, SHADER_UNIFORM_INT);
@@ -118,14 +119,15 @@ static void Frame(void) {
     BeginDrawing();
         ClearBackground(BLACK);
         BeginShaderMode(g.shader);
-            DrawTextureRec(g.canvas.texture,
-                (Rectangle){0,0,W,-H}, (Vector2){0,0}, WHITE);
+            DrawTexturePro(g.canvas.texture, (Rectangle){0,0,(float)g.canvas.texture.width,(float)-g.canvas.texture.height}, (Rectangle){0,0,W,H}, (Vector2){0,0}, 0, WHITE);
         EndShaderMode();
         DrawFPS(10,10);
         DrawText(TextFormat("Sampling: %s  |  SPP: %d  [+/- to adjust]",
                  modeNames[g.mode], g.spp), 10, H-28, 18, RAYWHITE);
         DrawText("[1] Uniform  [2] Cosine-weighted  |  Orbit: right-drag  Zoom: scroll",
                  10, H-50, 15, (Color){200,200,160,200});
+        // Auto-screenshot for visual verification
+        { static int _af = 0; if (++_af == 10) TakeScreenshot("/tmp/lesson4.png"); }
     EndDrawing();
 }
 

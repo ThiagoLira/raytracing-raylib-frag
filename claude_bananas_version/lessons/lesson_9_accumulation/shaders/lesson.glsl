@@ -158,9 +158,8 @@ void main() {
         output_color = mix(prev, newSample, blend);
     }
 
-    // Simple tone map (Reinhard)
-    output_color = output_color / (1.0 + output_color);
-    output_color = pow(max(output_color, 0.0), vec3(1.0/2.2));
-
+    // Output LINEAR HDR — tone mapping happens in the display pass.
+    // If we tone-mapped here, the accumulated result would get
+    // tone-mapped again next frame → image darkens to black!
     finalColor = vec4(output_color, 1.0);
 }

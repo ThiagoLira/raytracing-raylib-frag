@@ -16,8 +16,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define W 960
-#define H 540
+#define W 1280
+#define H 720
 
 static struct {
     Camera3D cam; Shader shader; RenderTexture2D canvas;
@@ -48,6 +48,7 @@ static Shader LoadVer(const char *p) {
 static void Init(void) {
     InitWindow(W, H, "Lesson 7 — Glass & Refraction");
     SetTargetFPS(60);
+    
     g.cam = (Camera3D){ .up={0,1,0}, .fovy=45, .projection=CAMERA_PERSPECTIVE };
     g.target = (Vector3){0,0.4f,-2.5f}; g.dist = 5.0f;
     g.angleH = 0.3f; g.angleV = 0.2f;
@@ -62,7 +63,7 @@ static void Init(void) {
     g.locFrame    = GetShaderLocation(g.shader, "frameCount");
     g.locIOR      = GetShaderLocation(g.shader, "ior");
 
-    float res[2] = {W, H};
+    float res[2] = {(float)W, (float)H};
     SetShaderValue(g.shader, g.locRes, res, SHADER_UNIFORM_VEC2);
     g.mode = 2; g.ior = 1.5f;
     SetShaderValue(g.shader, g.locMode, &g.mode, SHADER_UNIFORM_INT);
@@ -123,7 +124,7 @@ static void Frame(void) {
     BeginDrawing();
         ClearBackground(BLACK);
         BeginShaderMode(g.shader);
-            DrawTextureRec(g.canvas.texture, (Rectangle){0,0,W,-H}, (Vector2){0,0}, WHITE);
+            DrawTexturePro(g.canvas.texture, (Rectangle){0,0,(float)g.canvas.texture.width,(float)-g.canvas.texture.height}, (Rectangle){0,0,W,H}, (Vector2){0,0}, 0, WHITE);
         EndShaderMode();
         DrawFPS(10,10);
         DrawText(TextFormat("%s  |  IOR: %.2f %s  [+/- to adjust]",
@@ -131,6 +132,8 @@ static void Frame(void) {
                  10, H-28, 18, RAYWHITE);
         DrawText("[1] Reflect  [2] Refract  [3] Fresnel  |  Orbit: right-drag  Zoom: scroll",
                  10, H-50, 15, (Color){200,200,160,200});
+        // Auto-screenshot for visual verification
+        { static int _af = 0; if (++_af == 10) TakeScreenshot("/tmp/lesson7.png"); }
     EndDrawing();
 }
 

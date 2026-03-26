@@ -15,17 +15,19 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define W 960
-#define H 540
+#define W 1280
+#define H 720
 
 static struct {
-    Camera3D cam; Shader shader; RenderTexture2D canvas;
+    Camera3D cam; Shader shader; Shader displayShader; RenderTexture2D canvas;
     RenderTexture2D accumTex[2];
     int accumIdx;
     int locCamPos, locInvVP, locRes, locFrame, locAccum;
+    int locDispToneMap, locDispExposure;
     float angleH, angleV, dist;
     Vector3 target, prevCamPos;
     int frameCount;
+    int toneMapMode;
     bool paused;
 } g;
 
@@ -49,6 +51,7 @@ static Shader LoadVer(const char *p) {
 static void Init(void) {
     InitWindow(W, H, "Lesson 9 — Temporal Accumulation");
     SetTargetFPS(60);
+    
     g.cam = (Camera3D){ .up={0,1,0}, .fovy=45, .projection=CAMERA_PERSPECTIVE };
     g.target = (Vector3){0,0.3f,-2.2f}; g.dist = 5.0f;
     g.angleH = 0.2f; g.angleV = 0.2f;
@@ -61,8 +64,16 @@ static void Init(void) {
     g.locFrame  = GetShaderLocation(g.shader, "frameCount");
     g.locAccum  = GetShaderLocation(g.shader, "accumTexture");
 
-    float res[2] = {W, H};
+    float res[2] = {(float)W, (float)H};
     SetShaderValue(g.shader, g.locRes, res, SHADER_UNIFORM_VEC2);
+
+    g.displayShader = LoadVer("../display.glsl");
+    g.locDispToneMap  = GetShaderLocation(g.displayShader, "toneMapMode");
+    g.locDispExposure = GetShaderLocation(g.displayShader, "exposure");
+    g.toneMapMode = 1; // Reinhard by default
+    float defaultExp = 0.0f;
+    SetShaderValue(g.displayShader, g.locDispToneMap, &g.toneMapMode, SHADER_UNIFORM_INT);
+    SetShaderValue(g.displayShader, g.locDispExposure, &defaultExp, SHADER_UNIFORM_FLOAT);
 
     g.canvas = LoadRenderTexture(W, H);
 
@@ -133,16 +144,20 @@ static void Frame(void) {
             if (g.locAccum != -1)
                 SetShaderValueTexture(g.shader, g.locAccum, g.accumTex[readIdx].texture);
             DrawTextureRec(g.canvas.texture,
-                (Rectangle){0,0,(float)W,(float)-H}, (Vector2){0,0}, WHITE);
+                (Rectangle){0,0,(float)g.canvas.texture.width,(float)-g.canvas.texture.height},
+                (Vector2){0,0}, WHITE);
         EndShaderMode();
     EndTextureMode();
     g.accumIdx = writeIdx;
 
-    // Display (accumulated result already has tone mapping applied in shader)
+    // Display pass: apply tone mapping + gamma to the linear HDR accumulation
     BeginDrawing();
         ClearBackground(BLACK);
-        DrawTextureRec(g.accumTex[g.accumIdx].texture,
-            (Rectangle){0,0,(float)W,(float)-H}, (Vector2){0,0}, WHITE);
+        BeginShaderMode(g.displayShader);
+            DrawTextureRec(g.accumTex[g.accumIdx].texture,
+                (Rectangle){0,0,(float)g.accumTex[g.accumIdx].texture.width,(float)-g.accumTex[g.accumIdx].texture.height},
+                (Vector2){0,0}, WHITE);
+        EndShaderMode();
         DrawFPS(10,10);
 
         // Frame counter — the key metric
@@ -158,6 +173,8 @@ static void Frame(void) {
                  10, H-28, 18, RAYWHITE);
         DrawText("Orbit: right-drag (resets accumulation)  |  Zoom: scroll",
                  10, H-50, 15, (Color){200,200,160,200});
+        // Auto-screenshot for visual verification
+        { static int _af = 0; if (++_af == 10) TakeScreenshot("/tmp/lesson9.png"); }
     EndDrawing();
 }
 

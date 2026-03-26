@@ -18,8 +18,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define W 960
-#define H 540
+#define W 1280
+#define H 720
 
 static struct {
     Camera3D cam;
@@ -51,6 +51,7 @@ static Shader LoadVer(const char *p) {
 static void Init(void) {
     InitWindow(W, H, "Lesson 2 — Ray-Shape Intersections");
     SetTargetFPS(60);
+    
     g.cam = (Camera3D){ .up={0,1,0}, .fovy=45, .projection=CAMERA_PERSPECTIVE };
     g.target = (Vector3){0.5f, 0.5f, -3.0f};
     g.dist = 6.0f; g.angleH = 0.3f; g.angleV = 0.25f;
@@ -63,7 +64,7 @@ static void Init(void) {
     g.locRes     = GetShaderLocation(g.shader, "resolution");
     g.locMode    = GetShaderLocation(g.shader, "mode");
 
-    float res[2] = {W, H};
+    float res[2] = {(float)W, (float)H};
     SetShaderValue(g.shader, g.locRes, res, SHADER_UNIFORM_VEC2);
     g.mode = 0;
     SetShaderValue(g.shader, g.locMode, &g.mode, SHADER_UNIFORM_INT);
@@ -106,13 +107,14 @@ static void Frame(void) {
     BeginDrawing();
         ClearBackground(BLACK);
         BeginShaderMode(g.shader);
-            DrawTextureRec(g.canvas.texture,
-                (Rectangle){0,0,W,-H}, (Vector2){0,0}, WHITE);
+            DrawTexturePro(g.canvas.texture, (Rectangle){0,0,(float)g.canvas.texture.width,(float)-g.canvas.texture.height}, (Rectangle){0,0,W,H}, (Vector2){0,0}, 0, WHITE);
         EndShaderMode();
         DrawFPS(10,10);
         DrawText(TextFormat("Mode: %s  [1-4 to switch]", modeNames[g.mode]),
                  10, H-28, 18, RAYWHITE);
         DrawText("Yellow arrows = surface normals", 10, H-50, 16, (Color){200,200,160,200});
+        // Auto-screenshot for visual verification
+        { static int _af = 0; if (++_af == 10) TakeScreenshot("/tmp/lesson2.png"); }
     EndDrawing();
 }
 

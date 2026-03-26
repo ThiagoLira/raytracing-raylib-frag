@@ -14,8 +14,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define W 960
-#define H 540
+#define W 1280
+#define H 720
 
 static struct {
     Shader shader;
@@ -34,11 +34,12 @@ static Shader LoadVer(const char *p) {
 static void Init(void) {
     InitWindow(W, H, "Lesson 3 — Random Numbers on the GPU");
     SetTargetFPS(60);
+    
     g.shader = LoadVer("shaders/lesson_combined.glsl");
     g.locRes   = GetShaderLocation(g.shader, "resolution");
     g.locMode  = GetShaderLocation(g.shader, "mode");
     g.locFrame = GetShaderLocation(g.shader, "frameCount");
-    float res[2] = {W, H};
+    float res[2] = {(float)W, (float)H};
     SetShaderValue(g.shader, g.locRes, res, SHADER_UNIFORM_VEC2);
     g.mode = 0;
     SetShaderValue(g.shader, g.locMode, &g.mode, SHADER_UNIFORM_INT);
@@ -70,8 +71,7 @@ static void Frame(void) {
     BeginDrawing();
         ClearBackground(BLACK);
         BeginShaderMode(g.shader);
-            DrawTextureRec(g.canvas.texture,
-                (Rectangle){0,0,W,-H}, (Vector2){0,0}, WHITE);
+            DrawTexturePro(g.canvas.texture, (Rectangle){0,0,(float)g.canvas.texture.width,(float)-g.canvas.texture.height}, (Rectangle){0,0,W,H}, (Vector2){0,0}, 0, WHITE);
         EndShaderMode();
         DrawFPS(10,10);
         DrawText(TextFormat("[%d] %s", g.mode+1, modeNames[g.mode]),
@@ -95,6 +95,8 @@ static void Frame(void) {
             DrawText("Mapped to color: (x,y,z) -> (R,G,B). Used for scatter dirs!",
                      10, 60, 16, (Color){220,220,200,220});
         }
+        // Auto-screenshot for visual verification
+        { static int _af = 0; if (++_af == 10) TakeScreenshot("/tmp/lesson3.png"); }
     EndDrawing();
 }
 

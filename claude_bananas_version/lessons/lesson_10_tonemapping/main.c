@@ -18,14 +18,15 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define W 960
-#define H 540
+#define W 1280
+#define H 720
 
 static struct {
-    Camera3D cam; Shader shader; RenderTexture2D canvas;
+    Camera3D cam; Shader shader; Shader displayShader; RenderTexture2D canvas;
     RenderTexture2D accumTex[2];
     int accumIdx;
-    int locCamPos, locInvVP, locRes, locFrame, locAccum, locToneMap, locExposure;
+    int locCamPos, locInvVP, locRes, locFrame, locAccum;
+    int locDispToneMap, locDispExposure;
     float angleH, angleV, dist;
     Vector3 target, prevCamPos;
     int frameCount, toneMapMode;
@@ -52,6 +53,7 @@ static Shader LoadVer(const char *p) {
 static void Init(void) {
     InitWindow(W, H, "Lesson 10 — Tone Mapping & Color");
     SetTargetFPS(60);
+    
     g.cam = (Camera3D){ .up={0,1,0}, .fovy=45, .projection=CAMERA_PERSPECTIVE };
     g.target = (Vector3){0,0.3f,-2.5f}; g.dist = 5.5f;
     g.angleH = 0.15f; g.angleV = 0.2f;
@@ -63,14 +65,16 @@ static void Init(void) {
     g.locRes      = GetShaderLocation(g.shader, "resolution");
     g.locFrame    = GetShaderLocation(g.shader, "frameCount");
     g.locAccum    = GetShaderLocation(g.shader, "accumTexture");
-    g.locToneMap  = GetShaderLocation(g.shader, "toneMapMode");
-    g.locExposure = GetShaderLocation(g.shader, "exposure");
 
-    float res[2] = {W, H};
+    float res[2] = {(float)W, (float)H};
     SetShaderValue(g.shader, g.locRes, res, SHADER_UNIFORM_VEC2);
+
+    g.displayShader = LoadVer("../display.glsl");
+    g.locDispToneMap  = GetShaderLocation(g.displayShader, "toneMapMode");
+    g.locDispExposure = GetShaderLocation(g.displayShader, "exposure");
     g.toneMapMode = 3; g.exposure = 0.0f;
-    SetShaderValue(g.shader, g.locToneMap, &g.toneMapMode, SHADER_UNIFORM_INT);
-    SetShaderValue(g.shader, g.locExposure, &g.exposure, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(g.displayShader, g.locDispToneMap, &g.toneMapMode, SHADER_UNIFORM_INT);
+    SetShaderValue(g.displayShader, g.locDispExposure, &g.exposure, SHADER_UNIFORM_FLOAT);
 
     g.canvas = LoadRenderTexture(W, H);
 
@@ -117,19 +121,19 @@ static void Frame(void) {
     for (int k = KEY_ONE; k <= KEY_FOUR; k++)
         if (IsKeyPressed(k)) {
             g.toneMapMode = k-KEY_ONE;
-            SetShaderValue(g.shader, g.locToneMap, &g.toneMapMode, SHADER_UNIFORM_INT);
+            SetShaderValue(g.displayShader, g.locDispToneMap, &g.toneMapMode, SHADER_UNIFORM_INT);
             g.frameCount = 0; // reset to see the difference immediately
         }
 
     // Exposure
     if (IsKeyPressed(KEY_EQUAL)||IsKeyPressed(KEY_KP_ADD)) {
         g.exposure += 0.5f; if (g.exposure > 5.0f) g.exposure = 5.0f;
-        SetShaderValue(g.shader, g.locExposure, &g.exposure, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(g.displayShader, g.locDispExposure, &g.exposure, SHADER_UNIFORM_FLOAT);
         g.frameCount = 0;
     }
     if (IsKeyPressed(KEY_MINUS)||IsKeyPressed(KEY_KP_SUBTRACT)) {
         g.exposure -= 0.5f; if (g.exposure < -5.0f) g.exposure = -5.0f;
-        SetShaderValue(g.shader, g.locExposure, &g.exposure, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(g.displayShader, g.locDispExposure, &g.exposure, SHADER_UNIFORM_FLOAT);
         g.frameCount = 0;
     }
 
@@ -157,20 +161,26 @@ static void Frame(void) {
             if (g.locAccum != -1)
                 SetShaderValueTexture(g.shader, g.locAccum, g.accumTex[readIdx].texture);
             DrawTextureRec(g.canvas.texture,
-                (Rectangle){0,0,(float)W,(float)-H}, (Vector2){0,0}, WHITE);
+                (Rectangle){0,0,(float)g.canvas.texture.width,(float)-g.canvas.texture.height},
+                (Vector2){0,0}, WHITE);
         EndShaderMode();
     EndTextureMode();
     g.accumIdx = writeIdx;
 
     BeginDrawing();
         ClearBackground(BLACK);
-        DrawTextureRec(g.accumTex[g.accumIdx].texture,
-            (Rectangle){0,0,(float)W,(float)-H}, (Vector2){0,0}, WHITE);
+        BeginShaderMode(g.displayShader);
+            DrawTextureRec(g.accumTex[g.accumIdx].texture,
+                (Rectangle){0,0,(float)g.accumTex[g.accumIdx].texture.width,(float)-g.accumTex[g.accumIdx].texture.height},
+                (Vector2){0,0}, WHITE);
+        EndShaderMode();
         DrawFPS(10,10);
         DrawText(TextFormat("Tone map: %s  |  Exposure: %+.1f EV",
                  tmNames[g.toneMapMode], g.exposure), 10, H-28, 18, RAYWHITE);
         DrawText("[1] None  [2] Reinhard  [3] ACES  [4] AgX  |  [+/-] Exposure  [R] Reset",
                  10, H-50, 15, (Color){200,200,160,200});
+        // Auto-screenshot for visual verification
+        { static int _af = 0; if (++_af == 10) TakeScreenshot("/tmp/lesson10.png"); }
     EndDrawing();
 }
 
