@@ -1,76 +1,49 @@
 # Raytracing Raylib Fragment Shader
 
-A real-time ray tracer built with [raylib](https://www.raylib.com/) and GLSL, featuring an interactive web-based scene editor. The fragment shader performs iterative path tracing with support for Lambertian and metallic materials, directional lighting, and soft shadows.
+A real-time ray tracer built with [raylib](https://www.raylib.com/) and GLSL fragment shaders. This repo contains two versions: a hand-written educational implementation and an AI-generated version that went... significantly further.
 
-## Features
+https://github.com/user-attachments/assets/demo.mp4
 
-- Path tracing with configurable bounce depth and multi-sample anti-aliasing
-- Up to 10 spheres and 4 directional lights
-- Interactive scene editor (web build):
-  - Click to select spheres, drag to move them
-  - Add/delete spheres from the sidebar
-  - Color picker, material selector (Lambertian/Metal), radius slider
-  - Light controls: color, intensity, direction
-  - Orbital camera (right-click drag) with scroll zoom
+## Versions
 
-## Building
+### [`human_lessons_didactic_implementation/`](human_lessons_didactic_implementation/)
 
-### Web build (primary target)
+The original — a carefully hand-written, step-by-step ray tracer built for learning. WebGL 1.0, Blinn-Phong materials, interactive scene editor. Each feature was added incrementally with a companion [LIGHTING_THEORY.md](human_lessons_didactic_implementation/LIGHTING_THEORY.md) explaining the math.
 
-The web build compiles to WebAssembly via Emscripten, targeting WebGL 1.0. It includes a custom HTML shell with a sidebar UI for scene editing.
+### [`vibe_coded_reference_implementation/`](vibe_coded_reference_implementation/)
 
-#### Prerequisites
+First AI-assisted version. Same WebGL 1.0 architecture but with more features added via vibe coding.
 
-1. Install [Emscripten SDK](https://emscripten.org/docs/getting_started/downloads.html):
+### [`claude_bananas_version/`](claude_bananas_version/)
 
-```bash
-git clone https://github.com/emscripten-core/emsdk.git
-cd emsdk
-./emsdk install latest
-./emsdk activate latest
-source ./emsdk_env.sh
-```
+I gave [Claude Code](https://claude.ai/claude-code) the keys and said "go nuts." In one session it rewrote the renderer into a full Monte Carlo path tracer:
 
-2. Build raylib for web:
+- **WebGL 2.0** with scene data in RGBA32F textures
+- **Cook-Torrance GGX** microfacet BRDF (replaces Blinn-Phong)
+- **MIS + NEE** (Multiple Importance Sampling + Next Event Estimation)
+- **AgX tone mapping** (Blender 3.6+ standard)
+- **Procedural golden hour sky** with sun bloom
+- **Multi-SPP** (1-64 samples/frame), temporal accumulation
+- **Cache-optimized** 8-wide texture layout, bounding sphere rejection
+
+See the [full README](claude_bananas_version/README.md) for details.
+
+## Quick Start
 
 ```bash
-git clone https://github.com/raysan5/raylib.git
-cd raylib/src
-make -e PLATFORM=PLATFORM_WEB -B
+# Build raylib for WebGL 2.0
+cd /path/to/raylib/src
+make PLATFORM=PLATFORM_WEB GRAPHICS=GRAPHICS_API_OPENGL_ES3 -j$(nproc)
+
+# Build the Claude version
+cd claude_bananas_version
+# Edit Makefile: set RAYLIB_WEB_SRC to your raylib/src path
+make web
+
+# Serve
+cd web && python3 -m http.server 8080
+# Open http://localhost:8080
 ```
-
-3. Set `RAYLIB_WEB_SRC` in the `Makefile` to point to your `raylib/src` directory:
-
-```make
-RAYLIB_WEB_SRC ?= /path/to/raylib/src
-```
-
-#### Build and run
-
-```bash
-source ~/emsdk/emsdk_env.sh
-make clean && make web
-python3 -m http.server -d web 8000
-# open http://localhost:8000
-```
-
-### Desktop build (legacy)
-
-Desktop source files are in `legacy_non_web/`. To build:
-
-```bash
-make   # builds raylib_c_project from legacy_non_web/main.c
-```
-
-Requires raylib installed locally (e.g. via Homebrew on macOS or `libraylib-dev` on Linux).
-
-## Files
-
-- `main_web.c` – web entry point with scene state, camera controls, sphere picking/dragging, and C API exported to JavaScript
-- `shaders/distance_web.glsl` – GLSL ES 1.00 fragment shader (path tracing, up to 10 spheres + 4 lights)
-- `shell.html` – custom Emscripten HTML shell with sidebar scene editor UI
-- `Makefile` – build targets for desktop and web
-- `legacy_non_web/` – original desktop-only `main.c` and `distance.glsl`
 
 ## Controls
 
@@ -82,13 +55,9 @@ Requires raylib installed locally (e.g. via Homebrew on macOS or `libraylib-dev`
 | Move sphere | Left-click + drag |
 | Add/delete/edit | Sidebar panel |
 
-## Demo
-
-
+## Original Demo (Human Version)
 
 https://github.com/user-attachments/assets/71b209e4-12d8-42e7-9fa4-3d737641d1c9
-
-
 
 ## License
 
