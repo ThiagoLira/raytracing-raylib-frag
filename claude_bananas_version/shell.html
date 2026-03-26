@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Raytracer — Full Lighting Reference</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+  #canvas-container {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0f0f1a;
+    overflow: hidden;
+  }
+  canvas { display: block; max-width: 100%; max-height: 100vh; }
+  #sidebar {
+    width: 300px;
+    flex-shrink: 0;
+    background: #16213e;
+    border-left: 1px solid #0f3460;
+    overflow-y: auto;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  #sidebar h2 {
+    font-size: 15px;
+    color: #e94560;
+    border-bottom: 1px solid #0f3460;
+    padding-bottom: 6px;
+    margin: 0;
+  }
+  #sidebar h3 {
+    font-size: 12px;
+    color: #a0a0c0;
+    margin: 4px 0 2px 0;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .panel {
+    background: #1a1a3e;
+    border: 1px solid #0f3460;
+    border-radius: 6px;
+    padding: 10px;
+  }
+  .btn {
+    display: inline-block;
+    padding: 5px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    transition: background 0.15s;
+  }
+  .btn-add { background: #0f3460; color: #e0e0e0; }
+  .btn-add:hover { background: #1a4a7a; }
+  .btn-del { background: #531530; color: #e94560; }
+  .btn-del:hover { background: #7a1a40; }
+  .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+  label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    margin: 3px 0;
+  }
+  input[type="color"] {
+    width: 32px;
+    height: 24px;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    background: none;
+    cursor: pointer;
+  }
+  input[type="range"] {
+    flex: 1;
+    accent-color: #e94560;
+  }
+  select {
+    background: #0f0f2a;
+    color: #e0e0e0;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-size: 12px;
+  }
+  .info-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: #808090;
+  }
+  #sphere-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .sphere-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    background: #0f0f2a;
+    border: 1px solid transparent;
+    transition: border 0.15s;
+  }
+  .sphere-item:hover { border-color: #0f3460; }
+  .sphere-item.selected { border-color: #e94560; background: #1a1030; }
+  .sphere-swatch {
+    width: 14px; height: 14px;
+    border-radius: 3px;
+    border: 1px solid #333;
+  }
+  .controls-help {
+    font-size: 10px;
+    color: #606080;
+    line-height: 1.6;
+  }
+  .controls-help kbd {
+    background: #0f0f2a;
+    border: 1px solid #333;
+    border-radius: 3px;
+    padding: 1px 3px;
+    font-size: 10px;
+  }
+  .hidden { display: none; }
+  .sub-panel {
+    background: #14143a;
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    padding: 6px;
+    margin-top: 4px;
+  }
+  .mat-label { font-size: 11px; color: #8888aa; font-style: italic; }
+  #loading-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: #1a1a2e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    z-index: 100;
+  }
+  #loading-overlay .spinner {
+    width: 40px; height: 40px;
+    border: 4px solid #0f3460;
+    border-top: 4px solid #e94560;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div id="status">Loading...</div>
+</div>
+
+<div id="canvas-container">
+  <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+</div>
+
+<div id="sidebar">
+  <h2>Full Lighting Reference</h2>
+
+  <!-- Scene Preset -->
+  <div class="panel">
+    <h3>Scene</h3>
+    <label>Preset
+      <select id="scene-preset">
+        <option value="0">Default (Spheres)</option>
+        <option value="1">Cornell Box</option>
+      </select>
+    </label>
+  </div>
+
+  <!-- Sphere list -->
+  <div class="panel">
+    <h3>Spheres</h3>
+    <div id="sphere-list"></div>
+    <div class="btn-group" style="margin-top:6px;">
+      <button class="btn btn-add" id="btn-add-sphere">+ Add</button>
+      <button class="btn btn-del" id="btn-del-sphere">Delete</button>
+    </div>
+  </div>
+
+  <!-- Selected sphere properties -->
+  <div class="panel hidden" id="sphere-props">
+    <h3>Properties</h3>
+    <label>Color <input type="color" id="sphere-color" value="#888888"></label>
+    <label>Material
+      <select id="sphere-material">
+        <option value="0">Lambertian</option>
+        <option value="1">Metal</option>
+        <option value="2">Emissive</option>
+        <option value="3">Glass</option>
+      </select>
+    </label>
+    <label>Radius <input type="range" id="sphere-radius" min="0.1" max="5" step="0.05" value="0.5">
+      <span id="sphere-radius-val">0.50</span>
+    </label>
+
+    <!-- Metal properties -->
+    <div id="metal-props" class="sub-panel hidden">
+      <span class="mat-label">Metal (GGX PBR)</span>
+      <label>Roughness <input type="range" id="sphere-roughness" min="0.01" max="1" step="0.01" value="0.05">
+        <span id="sphere-roughness-val">0.05</span>
+      </label>
+      <label>Preset
+        <select id="metal-preset">
+          <option value="">Custom</option>
+          <option value="255,181,74">Gold</option>
+          <option value="242,163,137">Copper</option>
+          <option value="242,237,224">Silver</option>
+          <option value="143,145,148">Iron</option>
+        </select>
+      </label>
+    </div>
+
+    <!-- Emissive properties -->
+    <div id="emissive-props" class="sub-panel hidden">
+      <span class="mat-label">Emission</span>
+      <label>Em. Color <input type="color" id="sphere-emission" value="#ff9900"></label>
+      <label>Strength <input type="range" id="sphere-em-strength" min="0" max="20" step="0.1" value="3">
+        <span id="sphere-em-strength-val">3.0</span>
+      </label>
+    </div>
+
+    <!-- Glass properties -->
+    <div id="glass-props" class="sub-panel hidden">
+      <span class="mat-label">Dielectric</span>
+      <label>IOR <input type="range" id="sphere-ior" min="1.0" max="3.0" step="0.01" value="1.5">
+        <span id="sphere-ior-val">1.50</span>
+      </label>
+    </div>
+
+    <!-- Roughness (for Lambertian — controls dielectric specular lobe) -->
+    <div id="specular-props" class="sub-panel hidden">
+      <span class="mat-label">Surface</span>
+      <label>Roughness <input type="range" id="sphere-specular" min="0.01" max="1" step="0.01" value="0.5">
+        <span id="sphere-specular-val">0.50</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- Lights -->
+  <div class="panel">
+    <h3>Light 0</h3>
+    <label>Type
+      <select id="light-type">
+        <option value="0">Directional</option>
+        <option value="1">Point</option>
+      </select>
+    </label>
+    <label>Color <input type="color" id="light-color" value="#e6d9b3"></label>
+    <label>Intensity <input type="range" id="light-intensity" min="0" max="5" step="0.05" value="0.8">
+      <span id="light-intensity-val">0.80</span>
+    </label>
+    <label>Radius (soft shadow) <input type="range" id="light-radius" min="0" max="2" step="0.01" value="0">
+      <span id="light-radius-val">0.00</span>
+    </label>
+    <!-- Directional fields -->
+    <div id="light-dir-fields">
+      <label>Dir X <input type="range" id="light-dx" min="-1" max="1" step="0.05" value="0.5">
+        <span id="light-dx-val">0.50</span>
+      </label>
+      <label>Dir Y <input type="range" id="light-dy" min="-1" max="1" step="0.05" value="-1">
+        <span id="light-dy-val">-1.00</span>
+      </label>
+      <label>Dir Z <input type="range" id="light-dz" min="-1" max="1" step="0.05" value="-0.3">
+        <span id="light-dz-val">-0.30</span>
+      </label>
+    </div>
+    <!-- Point fields -->
+    <div id="light-pos-fields" class="hidden">
+      <label>Pos X <input type="range" id="light-px" min="-10" max="10" step="0.1" value="0">
+        <span id="light-px-val">0.0</span>
+      </label>
+      <label>Pos Y <input type="range" id="light-py" min="-10" max="10" step="0.1" value="2">
+        <span id="light-py-val">2.0</span>
+      </label>
+      <label>Pos Z <input type="range" id="light-pz" min="-10" max="10" step="0.1" value="0">
+        <span id="light-pz-val">0.0</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- Rendering settings -->
+  <div class="panel">
+    <h3>Rendering</h3>
+    <label>Tone Mapping
+      <select id="tonemap-mode">
+        <option value="0">None</option>
+        <option value="1">Reinhard</option>
+        <option value="2">ACES Filmic</option>
+        <option value="3" selected>AgX</option>
+      </select>
+    </label>
+    <label>Exposure (EV) <input type="range" id="exposure" min="-5" max="5" step="0.1" value="0">
+      <span id="exposure-val">0.0</span>
+    </label>
+    <label>Samples/Frame <input type="range" id="spp" min="1" max="64" step="1" value="16">
+      <span id="spp-val">16</span>
+    </label>
+    <label><input type="checkbox" id="uncap-fps"> Uncap FPS (ludicrous mode)</label>
+    <label>Environment
+      <select id="env-mode">
+        <option value="0">Gradient</option>
+        <option value="2">Procedural Sky</option>
+      </select>
+    </label>
+    <label>Env Intensity <input type="range" id="env-intensity" min="0" max="5" step="0.05" value="1.0">
+      <span id="env-intensity-val">1.00</span>
+    </label>
+    <label>Env Rotation <input type="range" id="env-rotation" min="0" max="6.28" step="0.05" value="0">
+      <span id="env-rotation-val">0.00</span>
+    </label>
+    <label>AO Strength <input type="range" id="ao-strength" min="0" max="1" step="0.01" value="0.5">
+      <span id="ao-strength-val">0.50</span>
+    </label>
+    <label>AO Radius <input type="range" id="ao-radius" min="0.01" max="3" step="0.01" value="0.5">
+      <span id="ao-radius-val">0.50</span>
+    </label>
+  </div>
+
+  <!-- Controls -->
+  <div class="panel controls-help">
+    <h3>Controls</h3>
+    <kbd>Right-click</kbd> + drag: Orbit camera<br>
+    <kbd>Scroll</kbd>: Zoom in/out<br>
+    <kbd>Left-click</kbd>: Select sphere<br>
+    <kbd>Left-drag</kbd>: Move sphere
+  </div>
+
+  <div class="info-row">
+    <span id="fps-display">FPS: --</span>
+    <span id="sphere-count-display">0/10</span>
+  </div>
+</div>
+
+<script>
+var canvasElement = document.getElementById('canvas');
+var statusElement = document.getElementById('status');
+
+// Helper functions
+function hexToRgb(hex) {
+  return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
+}
+function rgbToHex(r,g,b) {
+  return '#' + [r,g,b].map(function(x){return x.toString(16).padStart(2,'0');}).join('');
+}
+function floatToComponent(f) { return Math.round(Math.max(0,Math.min(1,f))*255); }
+function floatRgbToHex(r,g,b) { return rgbToHex(floatToComponent(r),floatToComponent(g),floatToComponent(b)); }
+
+var matNames = ['Diffuse','Metal','Emissive','Glass'];
+
+function refreshUI() {
+  if (!Module._GetSphereCount) return;
+  var count = Module._GetSphereCount();
+  var selected = Module._GetSelectedSphere();
+  document.getElementById('sphere-count-display').textContent = count + '/64';
+
+  // Sphere list
+  var list = document.getElementById('sphere-list');
+  list.innerHTML = '';
+  for (var i = 0; i < count; i++) {
+    var r = Module._GetSphereColorR(i);
+    var g = Module._GetSphereColorG(i);
+    var b = Module._GetSphereColorB(i);
+    var hex = rgbToHex(r,g,b);
+    var mat = Module._GetSphereMaterial(i);
+    var div = document.createElement('div');
+    div.className = 'sphere-item' + (i === selected ? ' selected' : '');
+    div.innerHTML = '<div class="sphere-swatch" style="background:'+hex+'"></div>' +
+      '<span>Sphere ' + i + '</span><span style="margin-left:auto;font-size:10px;color:#808090">' +
+      (matNames[mat] || 'Unknown') + '</span>';
+    div.dataset.index = i;
+    div.addEventListener('click', (function(idx){
+      return function(){ Module._SelectSphere(idx); refreshUI(); };
+    })(i));
+    list.appendChild(div);
+  }
+
+  // Properties panel
+  var propsPanel = document.getElementById('sphere-props');
+  if (selected >= 0 && selected < count) {
+    propsPanel.classList.remove('hidden');
+    var sr = Module._GetSphereColorR(selected);
+    var sg = Module._GetSphereColorG(selected);
+    var sb = Module._GetSphereColorB(selected);
+    document.getElementById('sphere-color').value = rgbToHex(sr,sg,sb);
+    var mat = Module._GetSphereMaterial(selected);
+    document.getElementById('sphere-material').value = mat.toString();
+    var rad = Module._GetSphereRadius(selected);
+    document.getElementById('sphere-radius').value = rad;
+    document.getElementById('sphere-radius-val').textContent = rad.toFixed(2);
+
+    // Material-specific panels
+    document.getElementById('metal-props').classList.toggle('hidden', mat !== 1);
+    document.getElementById('emissive-props').classList.toggle('hidden', mat !== 2);
+    document.getElementById('glass-props').classList.toggle('hidden', mat !== 3);
+    document.getElementById('specular-props').classList.toggle('hidden', mat !== 0);
+
+    if (mat === 1) {
+      var rough = Module._GetSphereRoughness(selected);
+      document.getElementById('sphere-roughness').value = rough;
+      document.getElementById('sphere-roughness-val').textContent = rough.toFixed(2);
+    }
+    if (mat === 2) {
+      var er = Module._GetSphereEmissionR(selected);
+      var eg = Module._GetSphereEmissionG(selected);
+      var eb = Module._GetSphereEmissionB(selected);
+      document.getElementById('sphere-emission').value = floatRgbToHex(er,eg,eb);
+      var es = Module._GetSphereEmissionStrength(selected);
+      document.getElementById('sphere-em-strength').value = es;
+      document.getElementById('sphere-em-strength-val').textContent = es.toFixed(1);
+    }
+    if (mat === 3) {
+      var ior = Module._GetSphereIOR(selected);
+      document.getElementById('sphere-ior').value = ior;
+      document.getElementById('sphere-ior-val').textContent = ior.toFixed(2);
+    }
+    if (mat === 0) {
+      // Lambertian: show roughness (stored in specular field for simplicity)
+      var rough = Module._GetSphereRoughness(selected);
+      document.getElementById('sphere-specular').value = rough;
+      document.getElementById('sphere-specular-val').textContent = rough.toFixed(2);
+    }
+  } else {
+    propsPanel.classList.add('hidden');
+  }
+
+  // Light UI
+  var lt = Module._GetLightType(0);
+  document.getElementById('light-type').value = lt.toString();
+  document.getElementById('light-dir-fields').classList.toggle('hidden', lt !== 0);
+  document.getElementById('light-pos-fields').classList.toggle('hidden', lt !== 1);
+
+  var lr = Module._GetLightColorR(0);
+  var lg = Module._GetLightColorG(0);
+  var lb = Module._GetLightColorB(0);
+  document.getElementById('light-color').value = floatRgbToHex(lr,lg,lb);
+  var li = Module._GetLightIntensity(0);
+  document.getElementById('light-intensity').value = li;
+  document.getElementById('light-intensity-val').textContent = li.toFixed(2);
+
+  var lrad = Module._GetLightRadius(0);
+  document.getElementById('light-radius').value = lrad;
+  document.getElementById('light-radius-val').textContent = lrad.toFixed(2);
+
+  var dx = Module._GetLightDirX(0), dy = Module._GetLightDirY(0), dz = Module._GetLightDirZ(0);
+  document.getElementById('light-dx').value = dx; document.getElementById('light-dx-val').textContent = dx.toFixed(2);
+  document.getElementById('light-dy').value = dy; document.getElementById('light-dy-val').textContent = dy.toFixed(2);
+  document.getElementById('light-dz').value = dz; document.getElementById('light-dz-val').textContent = dz.toFixed(2);
+
+  var px = Module._GetLightPosX(0), py = Module._GetLightPosY(0), pz = Module._GetLightPosZ(0);
+  document.getElementById('light-px').value = px; document.getElementById('light-px-val').textContent = px.toFixed(1);
+  document.getElementById('light-py').value = py; document.getElementById('light-py-val').textContent = py.toFixed(1);
+  document.getElementById('light-pz').value = pz; document.getElementById('light-pz-val').textContent = pz.toFixed(1);
+
+  // Rendering settings
+  document.getElementById('tonemap-mode').value = Module._GetToneMapMode().toString();
+  var exp = Module._GetExposure();
+  document.getElementById('exposure').value = exp;
+  document.getElementById('exposure-val').textContent = exp.toFixed(1);
+  var spp = Module._GetSPP();
+  document.getElementById('spp').value = spp;
+  document.getElementById('spp-val').textContent = spp;
+  document.getElementById('env-mode').value = Module._GetEnvMode().toString();
+  var envI = Module._GetEnvIntensity();
+  document.getElementById('env-intensity').value = envI;
+  document.getElementById('env-intensity-val').textContent = envI.toFixed(2);
+  var envR = Module._GetEnvRotation();
+  document.getElementById('env-rotation').value = envR;
+  document.getElementById('env-rotation-val').textContent = envR.toFixed(2);
+  var aoS = Module._GetAOStrength();
+  document.getElementById('ao-strength').value = aoS;
+  document.getElementById('ao-strength-val').textContent = aoS.toFixed(2);
+  var aoR = Module._GetAORadius();
+  document.getElementById('ao-radius').value = aoR;
+  document.getElementById('ao-radius-val').textContent = aoR.toFixed(2);
+}
+
+// --- Wire up events ---
+
+// Sphere add/delete
+document.getElementById('btn-add-sphere').addEventListener('click', function(){
+  if (Module._GetSphereCount() < 64) { Module._AddSphere(); refreshUI(); }
+});
+document.getElementById('btn-del-sphere').addEventListener('click', function(){
+  if (Module._GetSelectedSphere() >= 0) { Module._DeleteSelectedSphere(); refreshUI(); }
+});
+
+// Sphere color
+document.getElementById('sphere-color').addEventListener('input', function(){
+  var sel = Module._GetSelectedSphere(); if (sel < 0) return;
+  var rgb = hexToRgb(this.value);
+  Module._SetSphereColor(sel, rgb[0], rgb[1], rgb[2]);
+});
+
+// Sphere material
+document.getElementById('sphere-material').addEventListener('change', function(){
+  var sel = Module._GetSelectedSphere(); if (sel < 0) return;
+  Module._SetSphereMaterial(sel, parseInt(this.value));
+  refreshUI();
+});
+
+// Sphere radius
+document.getElementById('sphere-radius').addEventListener('input', function(){
+  var sel = Module._GetSelectedSphere(); if (sel < 0) return;
+  document.getElementById('sphere-radius-val').textContent = parseFloat(this.value).toFixed(2);
+  Module._SetSphereRadius(sel, parseFloat(this.value));
+});
+
+// Metal: roughness
+document.getElementById('sphere-roughness').addEventListener('input', function(){
+  var sel = Module._GetSelectedSphere(); if (sel < 0) return;
+  document.getElementById('sphere-roughness-val').textContent = parseFloat(this.value).toFixed(2);
+  Module._SetSphereRoughness(sel, parseFloat(this.value));
+});
+
+// Emissive: emission color
+document.getElementById('sphere-emission').addEventListener('input', function(){
+  var sel = Module._GetSelectedSphere(); if (sel < 0) return;
+  var rgb = hexToRgb(this.value);
+  Module._SetSphereEmission(sel, rgb[0]/255.0, rgb[1]/255.0, rgb[2]/255.0);
+});
+
+// Emissive: emission strength
+document.getElementById('sphere-em-strength').addEventListener('input', function(){
+  var sel = Module._GetSelectedSphere(); if (sel < 0) return;
+  document.getElementById('sphere-em-strength-val').textContent = parseFloat(this.value).toFixed(1);
+  Module._SetSphereEmissionStrength(sel, parseFloat(this.value));
+});
+
+// Glass: IOR
+document.getElementById('sphere-ior').addEventListener('input', function(){
+  var sel = Module._GetSelectedSphere(); if (sel < 0) return;
+  document.getElementById('sphere-ior-val').textContent = parseFloat(this.value).toFixed(2);
+  Module._SetSphereIOR(sel, parseFloat(this.value));
+});
+
+// Lambertian roughness (writes to roughness field)
+document.getElementById('sphere-specular').addEventListener('input', function(){
+  var sel = Module._GetSelectedSphere(); if (sel < 0) return;
+  document.getElementById('sphere-specular-val').textContent = parseFloat(this.value).toFixed(2);
+  Module._SetSphereRoughness(sel, parseFloat(this.value));
+});
+
+// Metal preset
+document.getElementById('metal-preset').addEventListener('change', function(){
+  var sel = Module._GetSelectedSphere(); if (sel < 0) return;
+  var val = this.value;
+  if (!val) return;
+  var parts = val.split(',');
+  Module._SetSphereColor(sel, parseInt(parts[0]), parseInt(parts[1]), parseInt(parts[2]));
+  refreshUI();
+});
+
+// Light type
+document.getElementById('light-type').addEventListener('change', function(){
+  Module._SetLightType(0, parseInt(this.value)); refreshUI();
+});
+
+// Light color
+document.getElementById('light-color').addEventListener('input', function(){
+  var rgb = hexToRgb(this.value);
+  Module._SetLightColor(0, rgb[0]/255.0, rgb[1]/255.0, rgb[2]/255.0);
+});
+
+// Light intensity
+document.getElementById('light-intensity').addEventListener('input', function(){
+  document.getElementById('light-intensity-val').textContent = parseFloat(this.value).toFixed(2);
+  Module._SetLightIntensity(0, parseFloat(this.value));
+});
+
+// Light radius (soft shadows)
+document.getElementById('light-radius').addEventListener('input', function(){
+  document.getElementById('light-radius-val').textContent = parseFloat(this.value).toFixed(2);
+  Module._SetLightRadius(0, parseFloat(this.value));
+});
+
+// Light direction sliders
+['light-dx','light-dy','light-dz'].forEach(function(id){
+  document.getElementById(id).addEventListener('input', function(){
+    document.getElementById(id+'-val').textContent = parseFloat(this.value).toFixed(2);
+    Module._SetLightDir(0,
+      parseFloat(document.getElementById('light-dx').value),
+      parseFloat(document.getElementById('light-dy').value),
+      parseFloat(document.getElementById('light-dz').value));
+  });
+});
+
+// Light position sliders
+['light-px','light-py','light-pz'].forEach(function(id){
+  document.getElementById(id).addEventListener('input', function(){
+    document.getElementById(id+'-val').textContent = parseFloat(this.value).toFixed(1);
+    Module._SetLightPos(0,
+      parseFloat(document.getElementById('light-px').value),
+      parseFloat(document.getElementById('light-py').value),
+      parseFloat(document.getElementById('light-pz').value));
+  });
+});
+
+// Tone mapping
+document.getElementById('tonemap-mode').addEventListener('change', function(){
+  Module._SetToneMapMode(parseInt(this.value));
+});
+
+// Exposure
+document.getElementById('exposure').addEventListener('input', function(){
+  document.getElementById('exposure-val').textContent = parseFloat(this.value).toFixed(1);
+  Module._SetExposure(parseFloat(this.value));
+});
+
+// Samples per frame
+document.getElementById('spp').addEventListener('input', function(){
+  document.getElementById('spp-val').textContent = parseInt(this.value);
+  Module._SetSPP(parseInt(this.value));
+});
+
+// Uncap FPS
+document.getElementById('uncap-fps').addEventListener('change', function(){
+  Module._SetUncapFPS(this.checked ? 1 : 0);
+});
+
+// AO strength
+document.getElementById('ao-strength').addEventListener('input', function(){
+  document.getElementById('ao-strength-val').textContent = parseFloat(this.value).toFixed(2);
+  Module._SetAOStrength(parseFloat(this.value));
+});
+
+// AO radius
+document.getElementById('ao-radius').addEventListener('input', function(){
+  document.getElementById('ao-radius-val').textContent = parseFloat(this.value).toFixed(2);
+  Module._SetAORadius(parseFloat(this.value));
+});
+
+// Environment
+document.getElementById('env-mode').addEventListener('change', function(){
+  Module._SetEnvMode(parseInt(this.value));
+});
+document.getElementById('env-intensity').addEventListener('input', function(){
+  document.getElementById('env-intensity-val').textContent = parseFloat(this.value).toFixed(2);
+  Module._SetEnvIntensity(parseFloat(this.value));
+});
+document.getElementById('env-rotation').addEventListener('input', function(){
+  document.getElementById('env-rotation-val').textContent = parseFloat(this.value).toFixed(2);
+  Module._SetEnvRotation(parseFloat(this.value));
+});
+
+// Scene preset
+document.getElementById('scene-preset').addEventListener('change', function(){
+  Module._SetScene(parseInt(this.value)); refreshUI();
+});
+
+// Periodic UI refresh (picks up changes from C side like dragging)
+setInterval(function(){ refreshUI(); }, 250);
+
+// Log FPS to console every 3 seconds for performance measurement
+setInterval(function(){
+  if (Module._GetFPSValue) {
+    console.log('[PERF] FPS: ' + Module._GetFPSValue() + ', SPP: ' + Module._GetSPP());
+  }
+}, 3000);
+
+var Module = {
+  print: function() { console.log.apply(console, arguments); },
+  canvas: canvasElement,
+  setStatus: function(text) {
+    statusElement.innerHTML = text;
+    if (!text) document.getElementById('loading-overlay').style.display = 'none';
+  },
+  totalDependencies: 0,
+  monitorRunDependencies: function(left) {
+    this.totalDependencies = Math.max(this.totalDependencies, left);
+    Module.setStatus(left ? 'Loading... (' + (this.totalDependencies-left) + '/' + this.totalDependencies + ')' : '');
+  }
+};
+Module.setStatus('Loading...');
+window.onerror = function(msg) {
+  Module.setStatus('Error: see console');
+  console.error(msg);
+};
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>
