@@ -1,11 +1,17 @@
-// Lesson 1: What Is a Ray?
+// Lesson 1: From Pixels to Rays
 //
-// Minimal raytracer host that renders one sphere against a sky gradient.
-// The shader overlays vector arrows showing the ray from camera to pixel.
+// Step through the coordinate transform pipeline that turns
+// a 2D screen pixel into a 3D ray.
 //
 // Controls:
+//   1 — Stage 1: UV coordinates (what the GPU gives you)
+//   2 — Stage 2: NDC (centered, normalized)
+//   3 — Stage 3: World position (after inverse view-projection)
+//   4 — Stage 4: Ray direction (the unit vector)
+//   5 — Stage 5: Hit distance (depth buffer)
+//   6 — Stage 6: Full raytrace (the final image)
 //   Right-click drag — orbit camera
-//   Scroll wheel     — zoom in/out
+//   Scroll wheel     — zoom
 
 #include "raylib.h"
 #include "raymath.h"
@@ -15,152 +21,138 @@
 #include <string.h>
 #include <math.h>
 
-#define SCREEN_WIDTH  960
-#define SCREEN_HEIGHT 540
+#define W 960
+#define H 540
 
-typedef struct {
-    Camera3D camera;
-    Shader   shader;
+static struct {
+    Camera3D cam;
+    Shader shader;
     RenderTexture2D canvas;
-    // Shader uniform locations
-    int locCamPos, locInvVP, locViewProj, locResolution, locTime;
+    int locCamPos, locInvVP, locViewProj, locRes, locMode;
     int locSphereCenter, locSphereRadius, locSphereColor;
-    // Camera orbit state
-    float angleH, angleV, distance;
+    float angleH, angleV, dist;
     Vector3 target;
-} App;
+    int mode;
+} g;
 
-static App g;
-
-// --- Camera orbit ---
-
-static void UpdateCameraFromAngles(void) {
-    float cosV = cosf(g.angleV);
-    g.camera.position = (Vector3){
-        g.target.x + g.distance * cosV * sinf(g.angleH),
-        g.target.y + g.distance * sinf(g.angleV),
-        g.target.z + g.distance * cosV * cosf(g.angleH),
+static void UpdateCam(void) {
+    float cv = cosf(g.angleV);
+    g.cam.position = (Vector3){
+        g.target.x + g.dist * cv * sinf(g.angleH),
+        g.target.y + g.dist * sinf(g.angleV),
+        g.target.z + g.dist * cv * cosf(g.angleH),
     };
-    g.camera.target = g.target;
+    g.cam.target = g.target;
 }
 
-// --- Shader loading (prepend #version) ---
-
-static Shader LoadShaderWithVersion(const char *fragPath) {
-    char *code = LoadFileText(fragPath);
-    if (!code) { printf("ERROR: could not load %s\n", fragPath); return (Shader){0}; }
-    int len = (int)strlen(code);
-    char *full = (char *)RL_MALLOC(len + 64);
-    sprintf(full, "#version 330\n%s", code);
-    UnloadFileText(code);
-    Shader s = LoadShaderFromMemory(NULL, full);
-    RL_FREE(full);
+static Shader LoadVer(const char *p) {
+    char *c = LoadFileText(p); if (!c) return (Shader){0};
+    char *f = malloc(strlen(c)+64); sprintf(f, "#version 330\n%s", c);
+    UnloadFileText(c); Shader s = LoadShaderFromMemory(NULL, f); free(f);
     return s;
 }
 
-// --- Init ---
-
-static void InitApp(void) {
-    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Lesson 1 — What Is a Ray?");
+static void Init(void) {
+    InitWindow(W, H, "Lesson 1 — From Pixels to Rays");
     SetTargetFPS(60);
 
-    // Camera
-    g.camera = (Camera3D){0};
-    g.camera.up     = (Vector3){0, 1, 0};
-    g.camera.fovy   = 45.0f;
-    g.camera.projection = CAMERA_PERSPECTIVE;
-    g.target   = (Vector3){0, 0, -2};
-    g.distance = 5.0f;
-    g.angleH   = 0.0f;
-    g.angleV   = 0.15f;
-    UpdateCameraFromAngles();
+    g.cam = (Camera3D){ .up={0,1,0}, .fovy=45, .projection=CAMERA_PERSPECTIVE };
+    g.target = (Vector3){0, 0, -2};
+    g.dist = 5.0f; g.angleH = 0.0f; g.angleV = 0.15f;
+    UpdateCam();
 
-    // Shader
-    g.shader = LoadShaderWithVersion("shaders/lesson_combined.glsl");
+    g.shader = LoadVer("shaders/lesson_combined.glsl");
     g.locCamPos      = GetShaderLocation(g.shader, "cameraPosition");
     g.locInvVP       = GetShaderLocation(g.shader, "invViewProj");
     g.locViewProj    = GetShaderLocation(g.shader, "viewProj");
-    g.locResolution  = GetShaderLocation(g.shader, "resolution");
-    g.locTime        = GetShaderLocation(g.shader, "time");
+    g.locRes         = GetShaderLocation(g.shader, "resolution");
+    g.locMode        = GetShaderLocation(g.shader, "mode");
     g.locSphereCenter = GetShaderLocation(g.shader, "sphereCenter");
     g.locSphereRadius = GetShaderLocation(g.shader, "sphereRadius");
     g.locSphereColor  = GetShaderLocation(g.shader, "sphereColor");
 
-    // Static uniforms
-    float res[2] = {(float)SCREEN_WIDTH, (float)SCREEN_HEIGHT};
-    SetShaderValue(g.shader, g.locResolution, res, SHADER_UNIFORM_VEC2);
+    float res[2] = {W, H};
+    SetShaderValue(g.shader, g.locRes, res, SHADER_UNIFORM_VEC2);
 
-    Vector3 sc = {0.0f, 0.0f, -2.0f};
-    float sr = 1.0f;
-    float scol[3] = {0.8f, 0.3f, 0.3f};
+    Vector3 sc = {0, 0, -2}; float sr = 1.0f; float scol[3] = {0.8f, 0.3f, 0.3f};
     SetShaderValue(g.shader, g.locSphereCenter, &sc, SHADER_UNIFORM_VEC3);
     SetShaderValue(g.shader, g.locSphereRadius, &sr, SHADER_UNIFORM_FLOAT);
     SetShaderValue(g.shader, g.locSphereColor, scol, SHADER_UNIFORM_VEC3);
 
-    // Canvas (dummy geometry for fullscreen shader pass)
-    g.canvas = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
+    g.mode = 0;
+    SetShaderValue(g.shader, g.locMode, &g.mode, SHADER_UNIFORM_INT);
+    g.canvas = LoadRenderTexture(W, H);
 }
 
-// --- Frame ---
+static const char *stageNames[] = {
+    "UV Coordinates  —  what the GPU gives each pixel: (0,0) to (1,1)",
+    "NDC (clip space)  —  remap to (-1,-1) to (1,1), center = origin",
+    "World Position  —  invViewProj unprojects 2D back to 3D (orbit to see it change!)",
+    "Ray Direction  —  normalize(worldPos - cameraPos) = the ray's heading",
+    "Hit Distance  —  how far the ray travels before hitting the sphere (depth)",
+    "Full Raytrace  —  the complete pipeline: pixel -> ray -> intersection -> color",
+};
 
-static void UpdateDrawFrame(void) {
-    // Orbit camera
+static const char *stageDetail[] = {
+    "Red = U (horizontal)  |  Green = V (vertical)  |  Black=(0,0)  Yellow=(1,1)",
+    "White crosshair = NDC origin (0,0) = where the camera looks",
+    "Color = fract(worldPos * 0.3):  R=X  G=Y  B=Z  —  orbit the camera!",
+    "Color = rayDir * 0.5 + 0.5:  center = forward dir, edges = field of view fan-out",
+    "Bright = close to camera  |  Dark = far away  |  Navy = miss (sky)",
+    "Normal arrows (yellow)  |  Axes at origin (RGB=XYZ)  |  Camera dot (white)",
+};
+
+static void Frame(void) {
     if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
-        Vector2 delta = GetMouseDelta();
-        g.angleH -= delta.x * 0.005f;
-        g.angleV += delta.y * 0.005f;
-        if (g.angleV >  1.4f) g.angleV =  1.4f;
-        if (g.angleV < -1.4f) g.angleV = -1.4f;
+        Vector2 d = GetMouseDelta();
+        g.angleH -= d.x*0.005f; g.angleV += d.y*0.005f;
+        g.angleV = Clamp(g.angleV, -1.4f, 1.4f);
     }
-    float wheel = GetMouseWheelMove();
-    if (wheel != 0.0f) {
-        g.distance -= wheel * 0.5f;
-        if (g.distance < 1.0f)  g.distance = 1.0f;
-        if (g.distance > 30.0f) g.distance = 30.0f;
-    }
-    UpdateCameraFromAngles();
+    float w = GetMouseWheelMove();
+    if (w != 0) { g.dist -= w*0.5f; g.dist = Clamp(g.dist, 1, 30); }
+    UpdateCam();
 
-    // Compute matrices
-    Matrix view = GetCameraMatrix(g.camera);
-    float aspect = (float)SCREEN_WIDTH / (float)SCREEN_HEIGHT;
-    Matrix proj = MatrixPerspective(g.camera.fovy * DEG2RAD, aspect, 0.1f, 100.0f);
+    for (int k = KEY_ONE; k <= KEY_SIX; k++) {
+        if (IsKeyPressed(k)) {
+            g.mode = k - KEY_ONE;
+            SetShaderValue(g.shader, g.locMode, &g.mode, SHADER_UNIFORM_INT);
+        }
+    }
+
+    Matrix view = GetCameraMatrix(g.cam);
+    float asp = (float)W/H;
+    Matrix proj = MatrixPerspective(g.cam.fovy*DEG2RAD, asp, 0.1f, 100.0f);
     Matrix vp = MatrixMultiply(view, proj);
-    Matrix invVP = MatrixInvert(vp);
-
-    // Upload uniforms
-    SetShaderValue(g.shader, g.locCamPos, &g.camera.position, SHADER_UNIFORM_VEC3);
-    SetShaderValueMatrix(g.shader, g.locInvVP, invVP);
+    SetShaderValue(g.shader, g.locCamPos, &g.cam.position, SHADER_UNIFORM_VEC3);
+    SetShaderValueMatrix(g.shader, g.locInvVP, MatrixInvert(vp));
     SetShaderValueMatrix(g.shader, g.locViewProj, vp);
-    float t = (float)GetTime();
-    SetShaderValue(g.shader, g.locTime, &t, SHADER_UNIFORM_FLOAT);
 
-    // Rasterize dummy geometry (needed so the shader has a quad to run on)
     BeginTextureMode(g.canvas);
         ClearBackground(BLACK);
-        BeginMode3D(g.camera);
-            DrawCube((Vector3){0, 0, -2}, 0.01f, 0.01f, 0.01f, BLACK);
-        EndMode3D();
+        BeginMode3D(g.cam); DrawPoint3D((Vector3){0,0,0}, BLACK); EndMode3D();
     EndTextureMode();
 
-    // Draw fullscreen with our shader
     BeginDrawing();
         ClearBackground(BLACK);
         BeginShaderMode(g.shader);
             DrawTextureRec(g.canvas.texture,
-                (Rectangle){0, 0, (float)g.canvas.texture.width,
-                             (float)-g.canvas.texture.height},
-                (Vector2){0, 0}, WHITE);
+                (Rectangle){0,0,(float)W,(float)-H}, (Vector2){0,0}, WHITE);
         EndShaderMode();
-        DrawFPS(10, 10);
-        DrawText("Right-click drag: orbit | Scroll: zoom", 10, SCREEN_HEIGHT - 25, 16, RAYWHITE);
+        DrawFPS(10,10);
+
+        // Stage number + name
+        DrawRectangle(0, H-62, W, 62, (Color){0,0,0,200});
+        DrawText(TextFormat("Stage %d/6: %s", g.mode+1, stageNames[g.mode]),
+                 10, H-58, 17, RAYWHITE);
+        DrawText(stageDetail[g.mode], 10, H-35, 14, (Color){200,200,160,220});
+        DrawText("[1-6] switch stages  |  Right-drag: orbit  |  Scroll: zoom",
+                 10, H-16, 13, (Color){160,160,140,180});
     EndDrawing();
 }
 
 int main(void) {
-    InitApp();
-    while (!WindowShouldClose()) UpdateDrawFrame();
-    UnloadShader(g.shader);
-    UnloadRenderTexture(g.canvas);
-    CloseWindow();
+    Init();
+    while (!WindowShouldClose()) Frame();
+    UnloadShader(g.shader); UnloadRenderTexture(g.canvas); CloseWindow();
     return 0;
 }
