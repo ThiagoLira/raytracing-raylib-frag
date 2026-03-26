@@ -1,8 +1,11 @@
 # Raytracing Raylib Fragment Shader
 
-A real-time ray tracer built with [raylib](https://www.raylib.com/) and GLSL fragment shaders. This repo contains two versions: a hand-written educational implementation and an AI-generated version that went... significantly further.
+A real-time ray tracer built with [raylib](https://www.raylib.com/) and GLSL fragment shaders. This repo contains three versions: a hand-written educational implementation (with it's accompaining AI-generated reference implementation) and another AI-generated version that went... significantly further.
 
-https://github.com/user-attachments/assets/demo.mp4
+
+https://github.com/user-attachments/assets/12de5811-e995-49a6-97a3-4ef701aead94
+
+
 
 ## Versions
 
@@ -12,7 +15,7 @@ The original — a carefully hand-written, step-by-step ray tracer built for lea
 
 ### [`vibe_coded_reference_implementation/`](vibe_coded_reference_implementation/)
 
-First AI-assisted version. Same WebGL 1.0 architecture but with more features added via vibe coding.
+First AI-assisted version. It is the vibe coded version implementing everything from the original plan of the lessons for the human version in one-shot.
 
 ### [`claude_bananas_version/`](claude_bananas_version/)
 
